@@ -1,0 +1,12 @@
+{
+  "name": "damage-priority-system",
+  "version": "1.0.0",
+  "description": "Damage Priority & Resolution System — résolution d'impacts couche par couche, persistante et déterministe.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "demo": "node demo/demo.js"
+  },
+  "license": "MIT"
+}

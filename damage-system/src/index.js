@@ -1,0 +1,11 @@
+export * from './constants.js';
+export { MATERIALS, getMaterial, elementalModifiers } from './materials.js';
+export { vec, raySphere, rayBox, rayCollider, incidenceAngle } from './geometry.js';
+export { EquipmentPiece, ZONE_PRESETS } from './equipment.js';
+export { bleedProfile, bleedRateAt } from './bleeding.js';
+export { BODY_ZONES, bodyZoneDef, classifyWound, limbModifiers } from './body.js';
+export { DamageState } from './damageState.js';
+export { DamageResolver, DEFAULT_CONFIG, ATTACK_PROFILES, angleFactor } from './resolver.js';
+export { resolveWeaponClash } from './weaponClash.js';
+export { ImpactQueue } from './impactQueue.js';
+export { createKnight, createSword, frontalStrike, KNIGHT_BODY_COLLIDERS } from './presets.js';
