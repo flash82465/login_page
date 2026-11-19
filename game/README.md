@@ -5,9 +5,10 @@ Socle du premier prototype jouable d'OKÉLUN, avec Godot 4.4.1 et Android comme 
 ## Ouvrir et lancer
 
 - **Godot 4.4.1** (éditeur standard, pas la version .NET) : ouvrir `game/project.godot`, puis F5.
-- **Clavier (ordinateur)** : A/D ou flèches pour se déplacer ; J, K, L et Espace sont réservés aux attaques légère et lourde, à la parade et à l'esquive (pas encore actives).
-- **Écran tactile** : les boutons à l'écran déclenchent les mêmes actions.
-- **Test de fumée** : `godot --headless --path game -- --smoke-test` charge la scène principale, la simule 120 frames, vérifie le socle et quitte avec le code 0 (succès) ou 1 (échec).
+- **Clavier (ordinateur)** : A/D ou flèches pour se déplacer, J attaque légère, K attaque lourde, L garde (maintenir), Espace esquive.
+- **Écran tactile** : flèches à gauche ; à droite, bouclier (garde), petit rond (attaque légère), grand rond (attaque lourde), double flèche (esquive).
+- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (14 tests, code de sortie 0 si tout passe).
+- **Test de fumée** : `godot --headless --path game -- --smoke-test`.
 - **APK Android** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
 
 ## Organisation
@@ -58,35 +59,33 @@ game/
 
 Le rendu photoréaliste visé par la direction artistique n'est **pas** atteignable sur la plupart des téléphones Android. Ce socle vise d'abord un combat fluide et lisible ; la qualité visuelle sera montée par paliers mesurés sur de vrais appareils.
 
-## État réel
+## État réel (mission 003)
 
-Échelle : *Conçu* (dans les documents) → *Implémenté* (code présent) → *Testé* (vérifié automatiquement) → *Validé* (essayé et approuvé sur appareil).
+Trois niveaux distincts : **programmé** (le code existe), **testé automatiquement** (un test de `tests/test_runner.gd` le vérifie en CI, sans écran, avec des touchers simulés), **vérifié sur Android** (constaté par l'auteur sur un vrai téléphone).
 
-| Élément | Statut | Détail |
-| --- | --- | --- |
-| Projet Godot, configuration mobile | Implémenté | `project.godot`, `export_presets.cfg` |
-| Scène de combat, arène, caméra | Implémenté | caméra qui suit et recule selon l'écart |
-| Deux combattants | Implémenté | capsules provisoires, masses 92 et 110 kg |
-| Déplacements | Implémenté | inertie selon la masse, orientation, couloir Z = 0 |
-| Attaques | Conçu | données prêtes (`AttackData`), `Fighter.request_attack` vide |
-| Parade | Conçu | action et bouton prêts, `Fighter.request_block` vide |
-| Esquive | Conçu | action et bouton prêts, `Fighter.request_dodge` vide |
-| Détection des impacts | Implémenté, non déclenché | hitbox, hurtbox et déduplication ; aucune attaque ne l'active encore |
-| Barre de vie et timer | Implémenté | reliés aux signaux du combattant |
-| Interface tactile | Implémenté | 6 boutons multitouch reliés aux actions |
-| IA basique | Partiel | s'approche à distance de garde, n'attaque pas |
-| Dégâts | Provisoire | `DamageService` applique `force × 0,25` ; portage du vrai système à faire |
-| Compilation Android | Préparé | workflow GitHub Actions ; voir ANDROID_BUILD.md |
-| Exécution sur un appareil Android | **Non testé** | aucun APK n'a encore été lancé sur un téléphone |
+| Fonctionnalité | Programmé | Testé automatiquement | Vérifié sur Android |
+| --- | --- | --- | --- |
+| Deux combattants, vie, chronomètre, boutons visibles | oui | oui (test de fumée) | **oui** (APK de la mission 002) |
+| Déplacement tactile maintenu, position conservée au relâchement | oui | oui (toucher simulé sur le vrai bouton) | non (correctif à vérifier) |
+| Déplacement libre, limites de l'arène, poussée de l'adversaire | oui | oui | non |
+| Caméra à zone morte, repères au sol | oui | oui (glissement à l'écran < 25 px) | non |
+| Attaque légère et attaque lourde (poses provisoires) | oui | oui (dégâts 7,5 et 17,5, recul) | non |
+| Une attaque ne touche qu'une fois | oui | oui (tête et torse touchés ensemble, 1 seul dégât) | non |
+| Garde (bouclier maintenu) | oui | oui (20 % des dégâts) | non |
+| Parade (garde levée moins de 8 frames avant l'impact) | oui | oui (0 dégât, attaquant déséquilibré) | non |
+| Esquive (double flèche) | oui | oui (invulnérable, aucun dégât) | non |
+| Réaction au coup, recul, arrêt sur image, éclat rouge, effet d'impact | oui | oui | non |
+| K.O., écran du vainqueur, « Rejouer » | oui | oui | non |
+| Victoire au temps | oui | oui | non |
+| IA : approche, attaque, garde, esquive | oui | oui (10 attaques en 10 s, jamais figée) | non |
+| Dégâts | **provisoires** (`force × 0,25`) | oui | non |
 
 ## Reste à développer (dans l'ordre conseillé)
 
-1. Valider la chaîne de compilation : premier APK produit par la CI, installé et lancé sur un téléphone.
-2. Attaques légère et lourde : machine à états démarrage, frames actives, récupération ; activation de la hitbox.
-3. Réaction aux coups : étourdissement, recul physique, K.O. et fin de manche.
-4. Parade (avec usure) et esquive (avec fenêtre d'invulnérabilité).
-5. IA : choix d'attaque, de parade et d'esquive selon la distance et l'état adverse.
-6. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
-7. Interface : Souffle, Kalé, statut ; écran de fin de manche.
-8. Mesures de performance sur 2 ou 3 téléphones de gammes différentes et budget par plateforme.
-9. Signature de release et publication (keystore en secret GitHub).
+1. Vérifier sur téléphone le nouvel APK : déplacement, attaques, garde, parade, esquive, victoire, revanche.
+2. Équilibrage : l'IA met un joueur immobile K.O. en moins de 10 secondes ; durées, dégâts et agressivité à régler en main.
+3. Animations : remplacer les poses provisoires par de vraies animations (squelette, transitions).
+4. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
+5. Interface : Souffle, Kalé, statut ; indication visuelle de la parade réussie.
+6. Mesures de performance sur 2 ou 3 téléphones de gammes différentes et budget par plateforme.
+7. Signature de release (clé conservée en secret GitHub).

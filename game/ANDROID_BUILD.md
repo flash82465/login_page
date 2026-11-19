@@ -20,6 +20,7 @@ Les artefacts sont conservés 14 jours. Les journaux d'import, du test de fumée
 | SDK Android + clé de debug | SDK préinstallé sur le runner ; clé générée à chaque exécution | SDK absent |
 | Import du projet | construit le cache Godot | erreur de script ou de chargement |
 | Test de fumée | lance la scène principale 120 frames en mode headless | « SMOKE TEST OK » absent |
+| Tests de gameplay | 14 scénarios (déplacement tactile, attaques, garde, parade, esquive, victoire, IA) | « TESTS OK » absent |
 | Export | `--export-debug "Android"` → `build/okelun-debug.apk` | APK absent ou vide |
 | Publication | artefact téléchargeable | — |
 

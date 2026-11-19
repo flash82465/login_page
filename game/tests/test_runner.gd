@@ -313,7 +313,7 @@ func _test_parry_negates_and_staggers() -> void:
 
 
 func _test_dodge_evades_attack() -> void:
-	_begin("Esquive (double flèche) : pas d'invulnérabilité, aucun dégât")
+	_begin("Esquive (double flèche) : un pas de côté invulnérable évite le coup")
 	var m = await _new_match(true, true)
 	var a: Fighter = m.fighter_a
 	var b: Fighter = m.fighter_b
