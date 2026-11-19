@@ -94,6 +94,11 @@ jobs:
           grep -q "SMOKE TEST OK" smoke.log
           if grep -E "SCRIPT ERROR" smoke.log; then exit 1; fi
 
+      - name: Diagnostic du déplacement (mission 003)
+        continue-on-error: true
+        run: |
+          timeout 120 godot --headless --path game --fixed-fps 60 res://tests/diagnostic_movement.tscn 2>&1 | grep -E "DIAG|ERROR" | tee diagnostic.log
+
       - name: Exporter l'APK de debug
         run: |
           set -o pipefail
