@@ -1,4 +1,6 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/arena_markers.gd" id="1_markers"]
 
 [sub_resource type="Environment" id="Environment_arena"]
 background_mode = 1
@@ -23,6 +25,7 @@ size = Vector3(30, 1, 8)
 size = Vector3(1, 6, 8)
 
 [node name="ArenaTraining" type="Node3D"]
+script = ExtResource("1_markers")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_arena")

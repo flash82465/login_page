@@ -14,6 +14,15 @@ enum Height { HIGH, MID, LOW }
 @export_range(1, 60) var recovery_frames: int = 12
 ## Force de l'impact, en unités d'impact (échelle du système de dégâts).
 @export var force: float = 40.0
+## Durée d'étourdissement infligée à la touche, et en garde.
+@export_range(0, 60) var hitstun_frames: int = 14
+@export_range(0, 60) var blockstun_frames: int = 8
+## Arrêt sur image partagé par les deux combattants à l'impact (sensation de poids).
+@export_range(0, 20) var hitstop_frames: int = 4
+## Vitesse de recul infligée, en m/s pour un défenseur de 80 kg.
+@export var knockback: float = 1.8
+## Échelle de la pose provisoire du bras pendant l'attaque.
+@export var arm_scale: float = 1.0
 
 
 func total_frames() -> int:

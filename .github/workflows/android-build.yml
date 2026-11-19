@@ -94,10 +94,12 @@ jobs:
           grep -q "SMOKE TEST OK" smoke.log
           if grep -E "SCRIPT ERROR" smoke.log; then exit 1; fi
 
-      - name: Diagnostic du déplacement (mission 003)
-        continue-on-error: true
+      - name: Tests de gameplay (déplacement, attaques, défense, victoire, IA)
         run: |
-          timeout 120 godot --headless --path game --fixed-fps 60 res://tests/diagnostic_movement.tscn 2>&1 | grep -E "DIAG|ERROR" | tee diagnostic.log
+          set -o pipefail
+          timeout 300 godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn 2>&1 | tee gameplay-tests.log
+          grep -q "^TESTS OK" gameplay-tests.log
+          if grep -E "SCRIPT ERROR|Parse Error" gameplay-tests.log; then exit 1; fi
 
       - name: Exporter l'APK de debug
         run: |

@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/combat/match_controller.gd" id="1_match"]
 [ext_resource type="PackedScene" path="res://scenes/arenas/arena_training.tscn" id="2_arena"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/camera/fight_camera.gd" id="6_camera"]
 [ext_resource type="PackedScene" path="res://scenes/interface/hud.tscn" id="7_hud"]
 [ext_resource type="PackedScene" path="res://scenes/interface/touch_controls.tscn" id="8_touch"]
+[ext_resource type="PackedScene" path="res://scenes/interface/result_overlay.tscn" id="9_result"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_match")
@@ -47,3 +48,5 @@ script = ExtResource("6_camera")
 [node name="HUD" parent="Interface" instance=ExtResource("7_hud")]
 
 [node name="TouchControls" parent="Interface" instance=ExtResource("8_touch")]
+
+[node name="ResultOverlay" parent="Interface" instance=ExtResource("9_result")]
