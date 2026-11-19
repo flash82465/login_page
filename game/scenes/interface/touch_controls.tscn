@@ -1,0 +1,76 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/ui/btn_left.svg" id="1_left"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_right.svg" id="2_right"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_light.svg" id="3_light"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_heavy.svg" id="4_heavy"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_block.svg" id="5_block"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_dodge.svg" id="6_dodge"]
+
+[node name="TouchControls" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="LeftPad" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = -200.0
+offset_right = 352.0
+offset_bottom = -32.0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="MoveLeft" type="TouchScreenButton" parent="LeftPad"]
+position = Vector2(0, 24)
+texture_normal = ExtResource("1_left")
+passby_press = true
+action = "move_left"
+
+[node name="MoveRight" type="TouchScreenButton" parent="LeftPad"]
+position = Vector2(150, 24)
+texture_normal = ExtResource("2_right")
+passby_press = true
+action = "move_right"
+
+[node name="RightPad" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -420.0
+offset_top = -260.0
+offset_right = -32.0
+offset_bottom = -32.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="Block" type="TouchScreenButton" parent="RightPad"]
+position = Vector2(0, 104)
+texture_normal = ExtResource("5_block")
+action = "block"
+
+[node name="LightAttack" type="TouchScreenButton" parent="RightPad"]
+position = Vector2(134, 104)
+texture_normal = ExtResource("3_light")
+action = "attack_light"
+
+[node name="HeavyAttack" type="TouchScreenButton" parent="RightPad"]
+position = Vector2(268, 104)
+texture_normal = ExtResource("4_heavy")
+action = "attack_heavy"
+
+[node name="Dodge" type="TouchScreenButton" parent="RightPad"]
+position = Vector2(201, 0)
+texture_normal = ExtResource("6_dodge")
+action = "dodge"

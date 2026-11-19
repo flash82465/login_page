@@ -1,0 +1,100 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat/fighter.gd" id="1_fighter"]
+[ext_resource type="Script" path="res://scripts/movement/fighter_motor.gd" id="2_motor"]
+[ext_resource type="Script" path="res://scripts/combat/hurtbox.gd" id="3_hurtbox"]
+[ext_resource type="Script" path="res://scripts/combat/hitbox.gd" id="4_hitbox"]
+[ext_resource type="Resource" path="res://assets/data/attacks/light_attack.tres" id="5_light"]
+[ext_resource type="Resource" path="res://assets/data/attacks/heavy_attack.tres" id="6_heavy"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="BoxMesh" id="BoxMesh_marker"]
+size = Vector3(0.2, 0.08, 0.12)
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_head"]
+radius = 0.16
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_torso"]
+size = Vector3(0.5, 0.65, 0.35)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_legs"]
+size = Vector3(0.42, 0.9, 0.3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_hit"]
+size = Vector3(0.45, 0.3, 0.3)
+
+[node name="Fighter" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 3
+script = ExtResource("1_fighter")
+light_attack = ExtResource("5_light")
+heavy_attack = ExtResource("6_heavy")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+mesh = SubResource("CapsuleMesh_body")
+
+[node name="FacingMarker" type="MeshInstance3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.32, 1.6, 0)
+mesh = SubResource("BoxMesh_marker")
+
+[node name="Motor" type="Node" parent="."]
+script = ExtResource("2_motor")
+
+[node name="Hurtboxes" type="Node3D" parent="."]
+
+[node name="Head" type="Area3D" parent="Hurtboxes"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+script = ExtResource("3_hurtbox")
+body_zone = &"head"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hurtboxes/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+shape = SubResource("SphereShape3D_head")
+
+[node name="Torso" type="Area3D" parent="Hurtboxes"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+script = ExtResource("3_hurtbox")
+body_zone = &"torso"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hurtboxes/Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.18, 0)
+shape = SubResource("BoxShape3D_torso")
+
+[node name="Legs" type="Area3D" parent="Hurtboxes"]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+script = ExtResource("3_hurtbox")
+body_zone = &"legs"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hurtboxes/Legs"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+shape = SubResource("BoxShape3D_legs")
+
+[node name="Hitbox" type="Area3D" parent="."]
+collision_layer = 0
+collision_mask = 8
+monitorable = false
+script = ExtResource("4_hitbox")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Hitbox"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 1.2, 0)
+shape = SubResource("BoxShape3D_hit")

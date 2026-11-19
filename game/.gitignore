@@ -1,0 +1,9 @@
+# Cache Godot (régénéré automatiquement ; les fichiers .import, eux, se versionnent)
+.godot/
+# Modèle de build Android Gradle (installé localement si besoin)
+android/
+# Sorties de compilation
+/build/
+*.apk
+*.aab
+*.keystore

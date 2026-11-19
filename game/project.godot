@@ -1,0 +1,57 @@
+; Fichier de configuration du projet Godot 4 — OKÉLUN (prototype Android)
+; Cible : téléphones Android milieu de gamme. Voir game/README.md.
+
+config_version=5
+
+[application]
+
+config/name="OKÉLUN"
+config/description="Prototype jouable Android — combat 1 contre 1."
+config/version="0.1.0"
+run/main_scene="res://scenes/main/main.tscn"
+config/features=PackedStringArray("4.4", "Mobile")
+config/icon="res://icon.svg"
+run/max_fps=60
+boot_splash/bg_color=Color(0.105882, 0.0784314, 0.0627451, 1)
+
+[autoload]
+
+InputSetup="*res://scripts/combat/input_setup.gd"
+DamageService="*res://scripts/damage/damage_service.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+window/vsync/vsync_mode=1
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[layer_names]
+
+3d_physics/layer_1="decor"
+3d_physics/layer_2="corps_combattants"
+3d_physics/layer_4="hurtbox"
+
+[physics]
+
+common/physics_ticks_per_second=60
+common/max_physics_steps_per_frame=4
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+rendering_device/fallback_to_opengl3=true
+textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=0
+scaling_3d/mode=0
+scaling_3d/scale=0.85
+lights_and_shadows/directional_shadow/size.mobile=2048
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=0
+environment/defaults/default_clear_color=Color(0.105882, 0.0784314, 0.0627451, 1)

@@ -1,0 +1,119 @@
+# Compilation Android automatisée du prototype Godot d'OKÉLUN.
+# Produit un APK de debug signé avec une clé de debug générée à chaque exécution.
+# Procédure complète : game/ANDROID_BUILD.md
+name: Android build (Godot)
+
+on:
+  push:
+    branches: ["godot/**", "main"]
+    paths: ["game/**", ".github/workflows/android-build.yml"]
+  pull_request:
+    paths: ["game/**", ".github/workflows/android-build.yml"]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.4.1"
+  GODOT_RELEASE: "stable"
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Godot et modèles d'export
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-cache
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}
+
+      - name: Installer Godot et les modèles d'export
+        run: |
+          set -euo pipefail
+          TAG="${GODOT_VERSION}-${GODOT_RELEASE}"
+          BASE="https://github.com/godotengine/godot/releases/download/${TAG}"
+          mkdir -p ~/godot-cache && cd ~/godot-cache
+          [ -s godot.zip ] || curl -fsSL -o godot.zip "${BASE}/Godot_v${TAG}_linux.x86_64.zip"
+          [ -s templates.tpz ] || curl -fsSL -o templates.tpz "${BASE}/Godot_v${TAG}_export_templates.tpz"
+          unzip -o -q godot.zip -d ~/godot-bin
+          mkdir -p ~/.local/bin
+          install -m 755 ~/godot-bin/Godot_v${TAG}_linux.x86_64 ~/.local/bin/godot
+          TPL_DIR=~/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}
+          mkdir -p "$TPL_DIR" /tmp/godot-templates
+          unzip -o -q templates.tpz -d /tmp/godot-templates
+          cp -r /tmp/godot-templates/templates/. "$TPL_DIR"/
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          ls "$TPL_DIR" | grep -E '^android_(debug|release)\.apk$'
+
+      - name: Configurer le SDK Android et la clé de debug
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          ls "$SDK/build-tools"
+          keytool -genkeypair -v -keystore "$HOME/debug.keystore" -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          SHORT="${GODOT_VERSION%.*}"
+          mkdir -p ~/.config/godot
+          for f in "editor_settings-4.tres" "editor_settings-${SHORT}.tres"; do
+            cat > ~/.config/godot/"$f" <<SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$SDK"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          SETTINGS
+          done
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+
+      - name: Importer le projet (détecte les erreurs de script)
+        run: |
+          set -o pipefail
+          godot --headless --path game --import 2>&1 | tee import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then
+            echo "::error::Erreurs de script détectées pendant l'import"; exit 1
+          fi
+
+      - name: Test de fumée (scène principale, 120 frames)
+        run: |
+          set -o pipefail
+          timeout 120 godot --headless --path game -- --smoke-test 2>&1 | tee smoke.log
+          grep -q "SMOKE TEST OK" smoke.log
+          if grep -E "SCRIPT ERROR" smoke.log; then exit 1; fi
+
+      - name: Exporter l'APK de debug
+        run: |
+          set -o pipefail
+          mkdir -p build
+          godot --headless --path game --export-debug "Android" "$GITHUB_WORKSPACE/build/okelun-debug.apk" 2>&1 | tee export.log
+          test -s build/okelun-debug.apk
+          ls -l build/okelun-debug.apk
+
+      - name: Publier l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: okelun-android-debug-${{ github.sha }}
+          path: build/okelun-debug.apk
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Publier les journaux
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-logs-${{ github.sha }}
+          path: "*.log"
+          if-no-files-found: ignore
