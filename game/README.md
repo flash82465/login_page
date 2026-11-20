@@ -1,13 +1,13 @@
 # OKÉLUN — Prototype Godot 4 (Android first)
 
-Socle du premier prototype jouable d'OKÉLUN (version **0.4.1** : jeu de la 0.4.0, installable à côté des versions précédentes), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
+Socle du premier prototype jouable d'OKÉLUN (version de travail **0.5.0**, mission 005 en cours ; dernière version publiée : **0.4.1**), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
 
 ## Ouvrir et lancer
 
 - **Godot 4.4.1** (éditeur standard, pas la version .NET) : ouvrir `game/project.godot`, puis F5.
 - **Clavier (ordinateur)** : A/D ou flèches pour se déplacer, J attaque légère, K attaque lourde, L garde (maintenir), Espace esquive.
 - **Écran tactile** : flèches à gauche ; à droite, bouclier (garde), petit rond (attaque légère), grand rond (attaque lourde), double flèche (esquive).
-- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (22 tests, code de sortie 0 si tout passe).
+- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (23 tests, code de sortie 0 si tout passe).
 - **Test de fumée** : `godot --headless --path game -- --smoke-test`.
 - **APK Android, versions et points de restauration** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
 
@@ -21,6 +21,7 @@ game/
 ├── scenes/
 │   ├── main/main.tscn       scène de combat : arène, 2 combattants, caméra, interface
 │   ├── fighters/fighter.tscn combattant générique (corps, hurtbox, hitbox)
+│   ├── fighters/visuals/    générations visuelles (capsule_v04.tscn : v0.1 à v0.4.1)
 │   ├── arenas/arena_training.tscn  arène d'entraînement (sol, murs, lumière)
 │   └── interface/           hud.tscn + hud.gd, touch_controls.tscn
 ├── scripts/
@@ -28,7 +29,9 @@ game/
 │   ├── damage/              DamageService (autoload, provisoire)
 │   ├── movement/            FighterMotor (inertie selon la masse)
 │   ├── camera/              FightCamera (cadrage des deux combattants)
-│   └── ai/                  AIController (IA basique)
+│   ├── ai/                  AIController (IA basique)
+│   └── visual/              FighterVisual (contrat des visuels), CapsuleVisual
+├── tests/                   tests de gameplay (test_runner) et banc de capture visuelle (capture/)
 └── assets/
     ├── ui/                  icônes des boutons tactiles
     └── data/attacks/        données des attaques légère et lourde
@@ -59,11 +62,21 @@ game/
 
 Le rendu photoréaliste visé par la direction artistique n'est **pas** atteignable sur la plupart des téléphones Android. Ce socle vise d'abord un combat fluide et lisible ; la qualité visuelle sera montée par paliers mesurés sur de vrais appareils.
 
+## Générations visuelles (mission 005)
+
+L'affichage d'un combattant est un composant séparé (`scripts/visual/fighter_visual.gd`) : le combattant lui transmet son état après chaque frame de logique, le visuel l'affiche et ne décide de rien. Les zones de touche, les états et les dégâts restent dans `Fighter`. Chaque génération est une scène de `scenes/fighters/visuals/`, choisie par la propriété `visual_scene` du combattant (vide : la génération de la scène).
+
+| Génération | Scène | Versions | État |
+| --- | --- | --- | --- |
+| Capsule | `capsule_v04.tscn` | v0.1 à v0.4.1 | conservée à l'identique (test d'équivalence et comparaison pixel à pixel avec V0.4.1) |
+
+**Banc de capture** (`tests/capture/`, exclu de l'APK) : rejoue des situations scriptées, photographie le vrai rendu et assemble des planches et des GIF lisibles sur téléphone. Le workflow manuel « Revue visuelle (planches) » (`.github/workflows/visual-review.yml`) les publie sur la branche `revue/mission-005` (images et pages uniquement) et peut comparer chaque image, pixel à pixel, au rendu d'une version de référence.
+
 ## État réel (version 0.4.0, mission 004)
 
 Trois niveaux distincts : **programmé** (le code existe), **testé automatiquement** (un test de `tests/test_runner.gd` le vérifie en CI, sans écran, avec des touchers simulés), **vérifié sur Android** (constaté par l'auteur sur un vrai téléphone).
 
-L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de la mission 003, sans détailler chaque point. Ce code est conservé comme version 0.3.0 (l'APK affichait encore le numéro interne 0.1.0). « 0.3.0 (global) » veut donc dire que la fonction existait dans cet APK et que le combat a été jugé fonctionnel, pas que ce point précis a été contrôlé. Aucune fonction n'a encore été vérifiée sur téléphone avec les versions 0.4.0 et 0.4.1 ; leur jeu est identique.
+L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de la mission 003, sans détailler chaque point. Ce code est conservé comme version 0.3.0 (l'APK affichait encore le numéro interne 0.1.0). « 0.3.0 (global) » veut donc dire que la fonction existait dans cet APK et que le combat a été jugé fonctionnel, pas que ce point précis a été contrôlé. Mise à jour : l'auteur a installé V0.4.1 à côté de l'ancienne application, vérifié que les deux coexistent et testé le combat : tout fonctionne (vérification globale, le jeu de 0.4.0 et 0.4.1 est identique).
 
 | Fonctionnalité | Programmé | Testé automatiquement | Vérifié sur Android |
 | --- | --- | --- | --- |

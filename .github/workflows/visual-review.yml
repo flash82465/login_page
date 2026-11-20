@@ -1,0 +1,165 @@
+# Revue visuelle d'OKÉLUN (mission 005).
+# Rend le vrai jeu image par image (rendu logiciel sur un affichage virtuel), assemble des
+# planches et des GIF lisibles sur téléphone et les publie sur la branche revue/mission-005,
+# qui ne contient que ces images et leurs pages. Peut comparer chaque image, pixel à pixel, au
+# rendu d'une version de référence (copie de travail en lecture seule : la branche de référence
+# n'est jamais modifiée). Ne compile aucun APK et ne touche à aucune version.
+# Lancement manuel ; il s'exécute aussi une fois quand ce fichier change, pour que GitHub
+# l'enregistre (sinon le lancement manuel est refusé tant que le fichier n'est pas sur main).
+name: Revue visuelle (planches)
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "Dossier de l'étape sur la branche de revue (lettres, chiffres, tirets)"
+        default: "etape-1-capsule"
+      title:
+        description: "Titre affiché sur les planches et la page"
+        default: "Étape 1 - génération visuelle capsule (v0.1 à v0.4.1)"
+      reference:
+        description: "Version de référence pour la comparaison pixel à pixel (« aucune » pour ne pas comparer)"
+        default: "version/v0.4.1"
+  push:
+    branches: ["godot/android-first"]
+    paths: [".github/workflows/visual-review.yml"]
+
+concurrency:
+  group: visual-review
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.4.1"
+  GODOT_RELEASE: "stable"
+  REVIEW_BRANCH: "revue/mission-005"
+
+jobs:
+  planches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      STEP: ${{ github.event.inputs.step || 'etape-1-capsule' }}
+      TITLE: ${{ github.event.inputs.title || 'Étape 1 - génération visuelle capsule (v0.1 à v0.4.1)' }}
+      REFERENCE: ${{ github.event.inputs.reference || 'version/v0.4.1' }}
+    steps:
+      - name: Récupérer le code à capturer
+        uses: actions/checkout@v4
+
+      - name: Vérifier les paramètres
+        run: |
+          [[ "$STEP" =~ ^[a-z0-9-]+$ ]] || { echo "::error::nom d'étape invalide : $STEP"; exit 1; }
+          echo "Étape $STEP ; référence : $REFERENCE"
+
+      - name: Récupérer la version de référence (lecture seule)
+        if: env.REFERENCE != 'aucune'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REFERENCE }}
+          path: reference
+          persist-credentials: false
+
+      - name: Restaurer Godot depuis le cache (sans le modifier)
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/godot-cache
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}
+
+      - name: Installer Godot (éditeur seul)
+        run: |
+          set -euo pipefail
+          TAG="${GODOT_VERSION}-${GODOT_RELEASE}"
+          mkdir -p ~/godot-cache && cd ~/godot-cache
+          [ -s godot.zip ] || curl -fsSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${TAG}/Godot_v${TAG}_linux.x86_64.zip"
+          unzip -o -q godot.zip -d ~/godot-bin
+          mkdir -p ~/.local/bin
+          install -m 755 ~/godot-bin/Godot_v${TAG}_linux.x86_64 ~/.local/bin/godot
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Installer l'affichage virtuel, le rendu logiciel, ffmpeg et Pillow
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb mesa-vulkan-drivers libgl1-mesa-dri ffmpeg python3-pil > /dev/null
+
+      - name: Copier le banc dans la copie de travail de la référence
+        if: env.REFERENCE != 'aucune'
+        run: |
+          mkdir -p reference/game/tests/capture
+          cp game/tests/capture/capture_bench.gd game/tests/capture/capture_bench.tscn reference/game/tests/capture/
+
+      - name: Importer les projets
+        run: |
+          set -o pipefail
+          for p in game reference/game; do
+            [ -d "$p" ] || continue
+            godot --headless --path "$p" --import 2>&1 | tee -a import.log
+          done
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" import.log; then exit 1; fi
+
+      - name: Capturer le code actuel
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/actuel" --title="$TITLE" 2>&1 | tee capture-actuel.log
+          grep -q "^CAPTURE OK" capture-actuel.log
+          if grep -E "SCRIPT ERROR|Parse Error" capture-actuel.log; then exit 1; fi
+
+      - name: Capturer la référence
+        if: env.REFERENCE != 'aucune'
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path reference/game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/reference" --title="Référence $REFERENCE" 2>&1 | tee capture-reference.log
+          grep -q "^CAPTURE OK" capture-reference.log
+
+      - name: Préparer la branche de revue
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$REVIEW_BRANCH" > /dev/null; then
+            git fetch -q --depth 1 origin "$REVIEW_BRANCH"
+            git worktree add -q revue FETCH_HEAD
+          else
+            git worktree add -q --detach revue
+            git -C revue checkout -q --orphan revue-tmp
+            git -C revue rm -rqf .
+          fi
+
+      - name: Comparer et rédiger la page de revue
+        run: |
+          REF_ARGS=()
+          if [ "$REFERENCE" != "aucune" ]; then REF_ARGS=(--reference-dir out/reference --reference "$REFERENCE"); fi
+          python3 .github/scripts/visual_review.py --current out/actuel "${REF_ARGS[@]}" \
+            --review revue --step "$STEP" --title "$TITLE" --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" \
+            --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --result out/resultat.json
+
+      - name: Publier sur la branche de revue (images et pages uniquement)
+        run: |
+          set -euo pipefail
+          cd revue
+          git add -A
+          git -c user.name="okelun-ci" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Revue visuelle : $STEP (${GITHUB_SHA::7})"
+          git push -q origin "HEAD:refs/heads/$REVIEW_BRANCH"
+          echo "Page de revue : $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$REVIEW_BRANCH"
+
+      - name: Conserver les images et les journaux (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revue-${{ env.STEP }}-${{ github.sha }}
+          path: |
+            revue/${{ env.STEP }}
+            out/resultat.json
+            *.log
+          retention-days: 14
+
+      - name: Vérifier l'équivalence avec la référence
+        if: env.REFERENCE != 'aucune'
+        run: |
+          python3 -c "import json,sys; r=json.load(open('out/resultat.json'))['comparison']; sys.exit(0 if r['identical'] else 1)" \
+            || { echo "::error::Le rendu diffère de la référence $REFERENCE (détail sur la page de revue)"; exit 1; }

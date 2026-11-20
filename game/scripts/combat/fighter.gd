@@ -34,6 +34,8 @@ const STUN_FRICTION_FACTOR := 0.35
 @export var body_color: Color = Color(0.55, 0.42, 0.3)
 @export var light_attack: AttackData
 @export var heavy_attack: AttackData
+## Génération visuelle (mission 005). Vide : le visuel de la scène (capsule, comme V0.4.1).
+@export var visual_scene: PackedScene
 
 var controller: FighterController
 var opponent: Fighter
@@ -57,18 +59,11 @@ var _parry_armed: bool = false
 var _next_parry_frame: int = 0
 var _buffered_attack: AttackData
 var _buffer_frames: int = 0
-var _flash_frames: int = 0
-var _flash_color: Color = Color(1.0, 0.3, 0.25)
 var _spawn_position: Vector3
-var _material: StandardMaterial3D
+var _visual: FighterVisual
 
 @onready var motor: FighterMotor = $Motor
 @onready var hitbox: Hitbox = $Hitbox
-@onready var _visual: Node3D = $Visual
-@onready var _body_mesh: MeshInstance3D = $Visual/Body
-@onready var _arm_pivot: Node3D = $Visual/ArmPivot
-@onready var _arm_mesh: MeshInstance3D = $Visual/ArmPivot/Arm
-@onready var _shield: MeshInstance3D = $Visual/Shield
 
 
 func _ready() -> void:
@@ -79,10 +74,7 @@ func _ready() -> void:
 	for child in $Hurtboxes.get_children():
 		if child is Hurtbox:
 			(child as Hurtbox).owner_fighter = self
-	_material = StandardMaterial3D.new()
-	_material.albedo_color = body_color
-	_body_mesh.material_override = _material
-	_arm_mesh.material_override = _material
+	_setup_visual()
 	_update_visuals()
 
 
@@ -98,7 +90,8 @@ func reset_for_round() -> void:
 	_freeze_frames = 0
 	_stun_frames = 0
 	_dodge_cooldown = 0
-	_flash_frames = 0
+	if _visual != null:
+		_visual.reset_visual()
 	_block_started_frame = -1000
 	_parry_armed = false
 	_next_parry_frame = 0
@@ -321,41 +314,31 @@ func _enter(next: State) -> void:
 
 
 func _flash(color: Color) -> void:
-	_flash_color = color
-	_flash_frames = FLASH_FRAMES
+	if _visual != null:
+		_visual.flash(color, FLASH_FRAMES)
 
 
-# --- Animation provisoire par la pose ----------------------------------------------------
+# --- Affichage : délégué à la génération visuelle (mission 005) ---------------------------
+
+## Frame courante dans l'état (lecture seule, pour les visuels).
+func get_state_frame() -> int:
+	return _state_frame
+
+
+func _setup_visual() -> void:
+	if visual_scene != null:
+		var previous := get_node_or_null("Visual")
+		if previous != null:
+			remove_child(previous)
+			previous.queue_free()
+		var replacement := visual_scene.instantiate()
+		replacement.name = "Visual"
+		add_child(replacement)
+	_visual = get_node_or_null("Visual") as FighterVisual
+	if _visual != null:
+		_visual.bind(self)
+
 
 func _update_visuals() -> void:
-	var arm_x := 0.0
-	var arm_scale := 1.0
-	var lean := 0.0
-	if state == State.ATTACK and current_attack != null:
-		var attack := current_attack
-		arm_scale = attack.arm_scale
-		if _state_frame <= attack.startup_frames:
-			var t := float(_state_frame) / attack.startup_frames
-			arm_x = -0.15 * t
-			lean = 0.08 * t
-		elif _state_frame <= attack.startup_frames + attack.active_frames:
-			arm_x = 0.32
-			lean = -0.18 * arm_scale
-		else:
-			var t := float(_state_frame - attack.startup_frames - attack.active_frames) / attack.recovery_frames
-			arm_x = 0.32 * (1.0 - t)
-			lean = -0.18 * arm_scale * (1.0 - t)
-	elif state == State.HITSTUN:
-		lean = 0.25
-	elif state == State.KO:
-		lean = 1.35
-	_arm_pivot.position.x = arm_x
-	_arm_pivot.scale = Vector3(arm_scale, arm_scale, arm_scale)
-	_visual.rotation.z = lean
-	_visual.scale.y = 0.85 if is_invulnerable() and state == State.DODGE else 1.0
-	_shield.visible = is_blocking()
-	if _flash_frames > 0:
-		_flash_frames -= 1
-		_material.albedo_color = _flash_color
-	else:
-		_material.albedo_color = body_color
+	if _visual != null:
+		_visual.update_visual(self)

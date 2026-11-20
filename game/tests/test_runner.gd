@@ -42,6 +42,8 @@ func _ready() -> void:
 	await _test_multitouch_move_attack_and_guard()
 	await _test_slide_between_arrows_switches_direction()
 	await _test_ai_balance()
+	# Mission 005 — générations visuelles
+	await _test_capsule_visual_identical_to_v041()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -667,3 +669,147 @@ func _test_ai_balance() -> void:
 		_check(r["tande"] < 100.0, "le marteleur gagne sans être touché (graine %d) : l'IA ne se défend pas" % seed_value)
 		_check(r["mabe"] < 100.0, "l'IA gagne sans être touchée par le marteleur (graine %d)" % seed_value)
 	_end()
+
+
+# --- Mission 005 : générations visuelles ---------------------------------------------------
+
+const CAPSULE_VISUAL_SCENE := preload("res://scenes/fighters/visuals/capsule_v04.tscn")
+
+
+func _test_capsule_visual_identical_to_v041() -> void:
+	_begin("Visuel capsule (ancienne génération) : structure et poses identiques à V0.4.1, génération sélectionnable")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	for f: Fighter in [a, b]:
+		var v: Node3D = f.get_node("Visual")
+		_check(v is CapsuleVisual, "%s : le visuel par défaut n'est pas la génération capsule" % f.display_name)
+		_check(_same_v3((v.get_node("Body") as Node3D).position, Vector3(0, 0.9, 0))
+			and _same_v3((v.get_node("FacingMarker") as Node3D).position, Vector3(0.32, 1.6, 0))
+			and _same_v3((v.get_node("ArmPivot") as Node3D).position, Vector3(0, 1.3, 0.22))
+			and _same_v3((v.get_node("ArmPivot/Arm") as Node3D).position, Vector3(0.25, 0, 0))
+			and _same_v3((v.get_node("Shield") as Node3D).position, Vector3(0.48, 1.2, 0)),
+			"%s : position des pièces différente de V0.4.1" % f.display_name)
+		var body := (v.get_node("Body") as MeshInstance3D).mesh as CapsuleMesh
+		_check(body != null and is_equal_approx(body.radius, 0.35) and is_equal_approx(body.height, 1.8), "%s : corps différent de V0.4.1" % f.display_name)
+		_check(_same_v3(((v.get_node("ArmPivot/Arm") as MeshInstance3D).mesh as BoxMesh).size, Vector3(0.5, 0.13, 0.13)), "%s : bras différent de V0.4.1" % f.display_name)
+		_check(_same_v3(((v.get_node("Shield") as MeshInstance3D).mesh as BoxMesh).size, Vector3(0.06, 0.75, 0.55)), "%s : bouclier différent de V0.4.1" % f.display_name)
+		_check(_capsule_color(f).is_equal_approx(f.body_color), "%s : couleur du corps différente" % f.display_name)
+
+	# Séquence couvrant tous les états ; chaque frame, la pose est comparée à la formule de V0.4.1.
+	var ca = _ctrl(a)
+	var cb = _ctrl(b)
+	var red := Color(1.0, 0.3, 0.25)
+	var parry_color := Color(1.0, 1.0, 0.85)
+	var compared := 0
+	var mismatches := 0
+	var red_frames_b := 0
+	var parry_frames_b := 0
+	var states_seen := {}
+	for frame in 420:
+		match frame:
+			0, 60, 170, 210, 270, 330:
+				_place(a, -0.45)
+				_place(b, 0.45)
+			10:
+				ca.press_light()  # A touche B : coup reçu, éclair rouge
+			62:
+				ca.block = true  # A garde depuis longtemps...
+			100:
+				cb.press_heavy()  # ... B frappe lourd : coup bloqué
+			160:
+				ca.block = false
+			175:
+				ca.press_dodge()  # esquive
+			215:
+				cb.press_light()  # B attaque...
+			217:
+				ca.block = true  # ... A lève la garde juste avant l'impact : parade, B déséquilibré
+			260:
+				ca.block = false
+			275:
+				ca.move_axis = -1.0  # marche
+			290:
+				ca.move_axis = 0.0
+			332:
+				b.health = 1.0
+			333:
+				ca.press_light()  # K.O.
+		await _frames(1)
+		for f: Fighter in [a, b]:
+			states_seen[f.state] = true
+			# Hors arrêt sur image et hors frame où le système de dégâts vient de changer l'état
+			# (le visuel n'est alors pas encore mis à jour, dans V0.4.1 comme maintenant).
+			if f.get_state_frame() >= 1 and int(f.get("_freeze_frames")) == 0:
+				compared += 1
+				if not _capsule_pose_matches_v041(f):
+					mismatches += 1
+		var color_b := _capsule_color(b)
+		if frame < 60 and color_b.is_equal_approx(red):
+			red_frames_b += 1
+		if frame >= 210 and frame < 270 and color_b.is_equal_approx(parry_color):
+			parry_frames_b += 1
+	_check(mismatches == 0, "%d poses sur %d diffèrent de la formule de V0.4.1" % [mismatches, compared])
+	_check(compared >= 600, "trop peu de frames comparées (%d)" % compared)
+	for s in [Fighter.State.IDLE, Fighter.State.WALK, Fighter.State.ATTACK, Fighter.State.BLOCK, Fighter.State.DODGE,
+			Fighter.State.HITSTUN, Fighter.State.BLOCKSTUN, Fighter.State.KO]:
+		_check(states_seen.has(s), "état %s non couvert par la séquence" % Fighter.State.keys()[s])
+	_check(red_frames_b == 6, "éclair rouge du coup reçu : %d frames au lieu de 6" % red_frames_b)
+	_check(parry_frames_b == 6, "éclair du déséquilibre après parade : %d frames au lieu de 6" % parry_frames_b)
+	print("    VISUEL capsule : %d poses comparées à V0.4.1, %d différences ; éclairs %d et %d frames" % [compared, mismatches, red_frames_b, parry_frames_b])
+	await _close(m)
+
+	# La génération visuelle se choisit par la propriété visual_scene du combattant.
+	var m2 = MAIN_SCENE.instantiate()
+	(m2.get_node("Fighters/FighterA") as Fighter).visual_scene = CAPSULE_VISUAL_SCENE
+	add_child(m2)
+	await _frames(2)
+	var fa: Fighter = m2.fighter_a
+	var visuals := fa.get_children().filter(func(c: Node) -> bool: return c.name == "Visual")
+	_check(visuals.size() == 1 and visuals[0] is CapsuleVisual, "visual_scene ne remplace pas proprement le visuel")
+	await _close(m2)
+	_end()
+
+
+## Pose de la génération capsule selon la formule de Fighter._update_visuals() de V0.4.1,
+## recopiée telle quelle comme référence.
+func _capsule_pose_matches_v041(f: Fighter) -> bool:
+	var state_frame := f.get_state_frame()
+	var arm_x := 0.0
+	var arm_scale := 1.0
+	var lean := 0.0
+	if f.state == Fighter.State.ATTACK and f.current_attack != null:
+		var attack := f.current_attack
+		arm_scale = attack.arm_scale
+		if state_frame <= attack.startup_frames:
+			var t := float(state_frame) / attack.startup_frames
+			arm_x = -0.15 * t
+			lean = 0.08 * t
+		elif state_frame <= attack.startup_frames + attack.active_frames:
+			arm_x = 0.32
+			lean = -0.18 * arm_scale
+		else:
+			var t := float(state_frame - attack.startup_frames - attack.active_frames) / attack.recovery_frames
+			arm_x = 0.32 * (1.0 - t)
+			lean = -0.18 * arm_scale * (1.0 - t)
+	elif f.state == Fighter.State.HITSTUN:
+		lean = 0.25
+	elif f.state == Fighter.State.KO:
+		lean = 1.35
+	var scale_y := 0.85 if f.is_invulnerable() and f.state == Fighter.State.DODGE else 1.0
+	var v: Node3D = f.get_node("Visual")
+	var pivot: Node3D = v.get_node("ArmPivot")
+	return is_equal_approx(pivot.position.x, arm_x) \
+		and pivot.scale.is_equal_approx(Vector3(arm_scale, arm_scale, arm_scale)) \
+		and is_equal_approx(v.rotation.z, lean) \
+		and is_equal_approx(v.scale.y, scale_y) \
+		and (v.get_node("Shield") as Node3D).visible == f.is_blocking()
+
+
+func _capsule_color(f: Fighter) -> Color:
+	var mesh := f.get_node("Visual/Body") as MeshInstance3D
+	return (mesh.material_override as StandardMaterial3D).albedo_color
+
+
+func _same_v3(u: Vector3, w: Vector3) -> bool:
+	return u.is_equal_approx(w)

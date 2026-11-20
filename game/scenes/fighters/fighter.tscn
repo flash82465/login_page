@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/combat/fighter.gd" id="1_fighter"]
 [ext_resource type="Script" path="res://scripts/movement/fighter_motor.gd" id="2_motor"]
@@ -6,17 +6,11 @@
 [ext_resource type="Script" path="res://scripts/combat/hitbox.gd" id="4_hitbox"]
 [ext_resource type="Resource" path="res://assets/data/attacks/light_attack.tres" id="5_light"]
 [ext_resource type="Resource" path="res://assets/data/attacks/heavy_attack.tres" id="6_heavy"]
+[ext_resource type="PackedScene" path="res://scenes/fighters/visuals/capsule_v04.tscn" id="7_visual"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
 height = 1.8
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
-radius = 0.35
-height = 1.8
-
-[sub_resource type="BoxMesh" id="BoxMesh_marker"]
-size = Vector3(0.2, 0.08, 0.12)
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_head"]
 radius = 0.16
@@ -30,18 +24,6 @@ size = Vector3(0.42, 0.9, 0.3)
 [sub_resource type="BoxShape3D" id="BoxShape3D_hit"]
 size = Vector3(0.45, 0.6, 0.3)
 
-[sub_resource type="BoxMesh" id="BoxMesh_arm"]
-size = Vector3(0.5, 0.13, 0.13)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_shield"]
-albedo_color = Color(0.35, 0.65, 1, 1)
-emission_enabled = true
-emission = Color(0.2, 0.45, 0.9, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_shield"]
-material = SubResource("StandardMaterial3D_shield")
-size = Vector3(0.06, 0.75, 0.55)
-
 [node name="Fighter" type="CharacterBody3D"]
 collision_layer = 2
 collision_mask = 1
@@ -53,28 +35,7 @@ heavy_attack = ExtResource("6_heavy")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_body")
 
-[node name="Visual" type="Node3D" parent="."]
-
-[node name="Body" type="MeshInstance3D" parent="Visual"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-mesh = SubResource("CapsuleMesh_body")
-
-[node name="FacingMarker" type="MeshInstance3D" parent="Visual"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.32, 1.6, 0)
-mesh = SubResource("BoxMesh_marker")
-
-[node name="ArmPivot" type="Node3D" parent="Visual"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.3, 0.22)
-
-[node name="Arm" type="MeshInstance3D" parent="Visual/ArmPivot"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25, 0, 0)
-mesh = SubResource("BoxMesh_arm")
-
-[node name="Shield" type="MeshInstance3D" parent="Visual"]
-visible = false
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.48, 1.2, 0)
-cast_shadow = 0
-mesh = SubResource("BoxMesh_shield")
+[node name="Visual" parent="." instance=ExtResource("7_visual")]
 
 [node name="Motor" type="Node" parent="."]
 script = ExtResource("2_motor")
