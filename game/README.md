@@ -1,15 +1,15 @@
 # OKÉLUN — Prototype Godot 4 (Android first)
 
-Socle du premier prototype jouable d'OKÉLUN, avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
+Socle du premier prototype jouable d'OKÉLUN (version **0.4.0**), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
 
 ## Ouvrir et lancer
 
 - **Godot 4.4.1** (éditeur standard, pas la version .NET) : ouvrir `game/project.godot`, puis F5.
 - **Clavier (ordinateur)** : A/D ou flèches pour se déplacer, J attaque légère, K attaque lourde, L garde (maintenir), Espace esquive.
 - **Écran tactile** : flèches à gauche ; à droite, bouclier (garde), petit rond (attaque légère), grand rond (attaque lourde), double flèche (esquive).
-- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (14 tests, code de sortie 0 si tout passe).
+- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (22 tests, code de sortie 0 si tout passe).
 - **Test de fumée** : `godot --headless --path game -- --smoke-test`.
-- **APK Android** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
+- **APK Android, versions et points de restauration** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
 
 ## Organisation
 
@@ -39,8 +39,8 @@ game/
 1. Chaque combattant demande une **intention** (`FighterIntent`) à son contrôleur : `PlayerInputController` (tactile ou clavier) ou `AIController`.
 2. `Fighter` applique l'intention selon son **état** (`IDLE`, `WALK`, `ATTACK`, `BLOCK`, `DODGE`, `HITSTUN`, `KO`).
 3. `FighterMotor` calcule la vitesse avec inertie ; le combattant reste sur le couloir de combat (Z = 0) et fait face à l'adversaire.
-4. Quand une attaque sera active, sa `Hitbox` détectera les `Hurtbox` adverses (tête, torse, jambes), une seule fois par coup et par cible.
-5. Le `MatchController` transmet chaque touche au `DamageService`, qui met à jour la vie ; le `Hud` suit le signal `health_changed`.
+4. Pendant les frames actives d'une attaque, sa `Hitbox` détecte les `Hurtbox` adverses (tête, torse, jambes), une seule fois par coup et par cible.
+5. Le `MatchController` (traité après les deux combattants) met les touches de la frame en file, puis les résout ensemble par le `DamageService` : deux coups portés dans la même frame touchent tous les deux, quel que soit l'ordre des nœuds. Il vérifie ensuite les K.O. (deux K.O. simultanés = égalité), puis le chronomètre. Le `Hud` suit le signal `health_changed`.
 
 ### Choix de configuration mobile
 
@@ -59,33 +59,48 @@ game/
 
 Le rendu photoréaliste visé par la direction artistique n'est **pas** atteignable sur la plupart des téléphones Android. Ce socle vise d'abord un combat fluide et lisible ; la qualité visuelle sera montée par paliers mesurés sur de vrais appareils.
 
-## État réel (mission 003)
+## État réel (version 0.4.0, mission 004)
 
 Trois niveaux distincts : **programmé** (le code existe), **testé automatiquement** (un test de `tests/test_runner.gd` le vérifie en CI, sans écran, avec des touchers simulés), **vérifié sur Android** (constaté par l'auteur sur un vrai téléphone).
 
+L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de la mission 003, sans détailler chaque point. Ce code est conservé comme version 0.3.0 (l'APK affichait encore le numéro interne 0.1.0). « 0.3.0 (global) » veut donc dire que la fonction existait dans cet APK et que le combat a été jugé fonctionnel, pas que ce point précis a été contrôlé. Aucune fonction n'a encore été vérifiée sur téléphone avec la version 0.4.0.
+
 | Fonctionnalité | Programmé | Testé automatiquement | Vérifié sur Android |
 | --- | --- | --- | --- |
-| Deux combattants, vie, chronomètre, boutons visibles | oui | oui (test de fumée) | **oui** (APK de la mission 002) |
-| Déplacement tactile maintenu, position conservée au relâchement | oui | oui (toucher simulé sur le vrai bouton) | non (correctif à vérifier) |
-| Déplacement libre, limites de l'arène, poussée de l'adversaire | oui | oui | non |
-| Caméra à zone morte, repères au sol | oui | oui (glissement à l'écran < 25 px) | non |
-| Attaque légère et attaque lourde (poses provisoires) | oui | oui (dégâts 7,5 et 17,5, recul) | non |
-| Une attaque ne touche qu'une fois | oui | oui (tête et torse touchés ensemble, 1 seul dégât) | non |
-| Garde (bouclier maintenu) | oui | oui (20 % des dégâts) | non |
-| Parade (garde levée moins de 8 frames avant l'impact) | oui | oui (0 dégât, attaquant déséquilibré) | non |
-| Esquive (double flèche) | oui | oui (invulnérable, aucun dégât) | non |
-| Réaction au coup, recul, arrêt sur image, éclat rouge, effet d'impact | oui | oui | non |
-| K.O., écran du vainqueur, « Rejouer » | oui | oui | non |
-| Victoire au temps | oui | oui | non |
-| IA : approche, attaque, garde, esquive | oui | oui (10 attaques en 10 s, jamais figée) | non |
+| Deux combattants, vie, chronomètre, boutons visibles | oui | oui (test de fumée) | **oui** (APK des missions 002 et 003) |
+| Déplacement tactile maintenu, position conservée au relâchement | oui | oui (toucher simulé sur le vrai bouton) | 0.3.0 (global) |
+| Glisser le doigt d'une flèche à l'autre sans le relever | oui | oui (nouveau test 0.4.0) | non |
+| Multitouch : flèche maintenue + attaque, flèche + bouclier | oui | oui (nouveau test 0.4.0) | non |
+| Déplacement libre, limites de l'arène, poussée de l'adversaire | oui | oui | 0.3.0 (global) |
+| Caméra à zone morte, recentrée à chaque revanche | oui | oui | 0.3.0 (global) ; recentrage : non |
+| Attaque légère et attaque lourde (poses provisoires) | oui | oui (dégâts 7,5 et 17,5, recul) | 0.3.0 (global) |
+| Une attaque ne touche qu'une fois | oui | oui | 0.3.0 (global) |
+| Coups simultanés : les deux combattants sont touchés | oui (0.4.0) | oui | non |
+| Garde (bouclier maintenu) | oui | oui (20 % des dégâts) | 0.3.0 (global) |
+| Parade : garde levée moins de 8 frames avant l'impact, au plus une fenêtre toutes les 30 frames | oui | oui (parade réussie ; marteler le bouclier = simple garde) | non (modifiée en 0.4.0) |
+| Esquive (double flèche) | oui | oui (invulnérable, aucun dégât) | 0.3.0 (global) |
+| Réaction au coup, recul, arrêt sur image, éclat rouge, effet d'impact | oui | oui | 0.3.0 (global) |
+| K.O. et vainqueur (joueur ou IA) ; double K.O. = égalité | oui | oui | non (corrigé en 0.4.0) |
+| « Rejouer » : n'importe quel doigt, revanches successives, aucune attaque fantôme | oui | oui | non (corrigé en 0.4.0) |
+| Victoire au temps | oui | oui | 0.3.0 (global) |
+| IA : approche, attaque, garde préventive, esquive, punition, gestion de la distance | oui | oui (jamais figée plus de 2 s ; mesure d'équilibrage) | non (modifiée en 0.4.0) |
 | Dégâts | **provisoires** (`force × 0,25`) | oui | non |
+
+### Équilibrage de l'IA mesuré en CI (3 graines aléatoires, 60 images/s)
+
+| Joueur simulé | Résultat |
+| --- | --- |
+| Immobile, sans défense | K.O. en 15,8 à 19,7 s (avant la mission 004 : moins de 10 s) ; l'IA attaque 9 à 11 fois |
+| Avance et martèle l'attaque légère, sans jamais se protéger | perd en 8,9 à 11,0 s ; il touche quand même l'IA, qui finit entre 62,5 et 92,5 PV |
+
+Ces joueurs simulés sont volontairement frustes : ils mesurent des bornes (l'IA n'est ni expéditive, ni à la merci du martèlement), pas le ressenti. La difficulté face à un vrai joueur, qui se déplace, se protège et esquive, reste à juger sur téléphone. Les réglages sont les variables exportées de `scripts/ai/ai_controller.gd`.
 
 ## Reste à développer (dans l'ordre conseillé)
 
-1. Vérifier sur téléphone le nouvel APK : déplacement, attaques, garde, parade, esquive, victoire, revanche.
-2. Équilibrage : l'IA met un joueur immobile K.O. en moins de 10 secondes ; durées, dégâts et agressivité à régler en main.
-3. Animations : remplacer les poses provisoires par de vraies animations (squelette, transitions).
-4. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
-5. Interface : Souffle, Kalé, statut ; indication visuelle de la parade réussie.
-6. Mesures de performance sur 2 ou 3 téléphones de gammes différentes et budget par plateforme.
-7. Signature de release (clé conservée en secret GitHub).
+1. Vérifier sur téléphone l'APK 0.4.0 : K.O. et vainqueur, « Rejouer » (avec un 2e doigt posé, plusieurs revanches), multitouch, glissé entre les flèches, parade, difficulté de l'IA.
+2. Équilibrage à la main d'après ce ressenti : l'IA punit fortement le martèlement de l'attaque légère.
+3. Clé de debug stable (secret GitHub) pour pouvoir mettre l'APK à jour sans désinstaller ; plus tard, signature de release.
+4. Animations : remplacer les poses provisoires par de vraies animations (squelette, transitions).
+5. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
+6. Interface : Souffle, Kalé, statut ; indication visuelle de la parade réussie.
+7. Mesures de performance sur 2 ou 3 téléphones de gammes différentes et budget par plateforme.

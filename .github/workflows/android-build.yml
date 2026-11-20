@@ -152,9 +152,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --prerelease \
-            --title "OKÉLUN $GITHUB_REF_NAME — prototype Android (debug)" \
-            --notes "APK de debug produit et testé automatiquement par la CI (tests de gameplay sans écran). Non vérifié sur téléphone au moment de la publication."
+          # Un tag créé depuis la page Releases de GitHub crée aussi la release : on y ajoute alors l'APK.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "OKÉLUN $GITHUB_REF_NAME — prototype Android (debug)" \
+              --notes "APK de debug produit et testé automatiquement par la CI (tests de gameplay sans écran). Non vérifié sur téléphone au moment de la publication."
+          fi
 
       - name: Publier les journaux
         if: always()
