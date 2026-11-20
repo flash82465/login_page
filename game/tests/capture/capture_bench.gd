@@ -143,18 +143,23 @@ func _until(fighter: Fighter, state: int, frame: int, limit: int = 120) -> bool:
 	return false
 
 
-func _shot(ctx: Dictionary, key: String, label: String, wide: bool = false) -> void:
+## Cadrages : « avant » (attaques, garde : cadre décalé vers l'adversaire), « corps » (réactions :
+## centré sur le corps qui recule), « ko » (corps au sol, cadre élargi aux proportions de la vignette).
+func _shot(ctx: Dictionary, key: String, label: String, framing: String = "avant") -> void:
 	var img := _grab()
 	img.save_png(_out.path_join("raw").path_join("%s_%s_%s.png" % [ctx["who"], ctx["side"], key]))
 	_manifest["raw"] += 1
 	var actor: Fighter = ctx["actor"]
 	var dir: float = ctx["dir"]
 	var tile: Image
-	if wide:
-		# K.O. : le corps bascule en arrière, on élargit le cadre de ce côté.
-		tile = _crop(img, ctx["m"].camera, actor.global_position + Vector3(-dir * 0.7, 0.75, 0.0), Vector2i(640, 600))
-	else:
-		tile = _crop(img, ctx["m"].camera, actor.global_position + Vector3(dir * 0.3, 0.95, 0.0), TILE)
+	match framing:
+		"ko":
+			tile = _crop(img, ctx["m"].camera, actor.global_position + Vector3(-dir * 0.95, 0.9, 0.0), Vector2i(720, 900))
+			tile.resize(TILE.x, TILE.y, Image.INTERPOLATE_LANCZOS)
+		"corps":
+			tile = _crop(img, ctx["m"].camera, actor.global_position + Vector3(-dir * 0.15, 0.95, 0.0), TILE)
+		_:
+			tile = _crop(img, ctx["m"].camera, actor.global_position + Vector3(dir * 0.3, 0.95, 0.0), TILE)
 	_tiles["%s/%s/%s" % [ctx["who"], ctx["side"], key]] = tile
 	_labels[key] = label
 
@@ -247,7 +252,7 @@ func _capture_states(fighter_index: int, facing_right: bool) -> void:
 	if not reached_hit:
 		_fail("coup reçu non atteint")
 		return
-	_shot(c, "etat-5-coup-recu", "Coup reçu (éclair rouge)")
+	_shot(c, "etat-5-coup-recu", "Coup reçu (éclair rouge)", "corps")
 	await _teardown(c)
 
 	c = await _setup(fighter_index, facing_right, 0.9)
@@ -271,7 +276,7 @@ func _capture_states(fighter_index: int, facing_right: bool) -> void:
 	if not reached_parry:
 		_fail("parade adverse non atteinte")
 		return
-	_shot(c, "etat-7-parade-subie", "Déséquilibré par une parade adverse")
+	_shot(c, "etat-7-parade-subie", "Déséquilibré par une parade adverse", "corps")
 	await _teardown(c)
 
 	c = await _setup(fighter_index, facing_right, 0.9)
@@ -281,7 +286,7 @@ func _capture_states(fighter_index: int, facing_right: bool) -> void:
 	if not reached_ko:
 		_fail("K.O. non atteint")
 		return
-	_shot(c, "etat-8-ko", "K.O.", true)
+	_shot(c, "etat-8-ko", "K.O.", "ko")
 	await _teardown(c)
 
 
