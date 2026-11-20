@@ -1,5 +1,8 @@
 # Compilation Android automatisée du prototype Godot d'OKÉLUN.
-# Produit un APK de debug signé avec une clé de debug générée à chaque exécution.
+# Règle des versions (game/ANDROID_BUILD.md) : chaque version a son propre identifiant
+# Android et son nom « OKÉLUN V0.X », toutes les versions sont signées avec la même clé
+# (secrets GitHub) et peuvent rester installées ensemble ; aucune version n'est écrasée.
+# La CI vérifie ces conditions avant de compiler, puis contrôle l'APK produit.
 # Procédure complète : game/ANDROID_BUILD.md
 name: Android build (Godot)
 
@@ -7,20 +10,30 @@ on:
   push:
     # version/vX.Y.Z : branches figées d'une version (points de restauration).
     branches: ["godot/**", "main", "version/**"]
-    # Tag vX.Y.Z créé depuis GitHub : l'APK est en plus publié dans une release.
-    # Si un tag ne déclenche pas la compilation, la lancer à la main (Run workflow) sur ce tag.
+    # Tag vX.Y.Z : recompile la version du tag (même identifiant, même signature).
     tags: ["v*"]
     paths: ["game/**", ".github/workflows/android-build.yml"]
   pull_request:
     paths: ["game/**", ".github/workflows/android-build.yml"]
   workflow_dispatch:
+    inputs:
+      archive_runs:
+        description: 'Conserver des APK déjà produits, sans les recompiler. Liste JSON : [{"run": "<id exécution>", "label": "<nom>"}]'
+        required: false
+        default: ""
 
 env:
   GODOT_VERSION: "4.4.1"
   GODOT_RELEASE: "stable"
+  # Empreinte publique (SHA-256) du certificat de la clé stable OKÉLUN : aucun APK n'est
+  # produit avec une autre clé. La clé elle-même est dans les secrets GitHub.
+  OKELUN_CERT_SHA256: "f4a60a33fd13682c4957522804074d03d534c1d80884dee18f1d22cebdb8b3d6"
+  # Release GitHub (créée une fois depuis GitHub) où chaque APK de version est conservé sans limite.
+  ARCHIVE_RELEASE: "apk-archive"
 
 jobs:
   android-debug:
+    if: github.event_name != 'workflow_dispatch' || inputs.archive_runs == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -59,31 +72,12 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           ls "$TPL_DIR" | grep -E '^android_(debug|release)\.apk$'
 
-      - name: Configurer le SDK Android et la clé de debug
+      - name: Configurer le SDK Android
         run: |
           set -euo pipefail
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           ls "$SDK/build-tools"
-          keytool -genkeypair -v -keystore "$HOME/debug.keystore" -storepass android \
-            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
-          SHORT="${GODOT_VERSION%.*}"
-          mkdir -p ~/.config/godot
-          for f in "editor_settings-4.tres" "editor_settings-${SHORT}.tres"; do
-            cat > ~/.config/godot/"$f" <<SETTINGS
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/android_sdk_path = "$SDK"
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/debug_keystore = "$HOME/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          SETTINGS
-          done
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/debug.keystore" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_PATH=$SDK" >> "$GITHUB_ENV"
 
       - name: Importer le projet (détecte les erreurs de script)
         run: |
@@ -107,29 +101,80 @@ jobs:
           grep -q "^TESTS OK" gameplay-tests.log
           if grep -E "SCRIPT ERROR|Parse Error" gameplay-tests.log; then exit 1; fi
 
-      - name: Nommer l'APK selon la version
+      - name: Vérifier la règle des versions OKÉLUN (avant compilation)
+        env:
+          KS_B64: ${{ secrets.OKELUN_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.OKELUN_KEYSTORE_PASSWORD }}
+          EVENT_CREATED: ${{ github.event.created }}
         run: |
           set -euo pipefail
-          VERSION=$(sed -n 's/^version\/name="\(.*\)"$/\1/p' game/export_presets.cfg)
-          CODE=$(sed -n 's/^version\/code=\(.*\)$/\1/p' game/export_presets.cfg)
+          fail() { echo "::error title=Règle des versions OKÉLUN::$1"; exit 1; }
+          PRESET=game/export_presets.cfg
+          VERSION=$(sed -n 's/^version\/name="\(.*\)"$/\1/p' "$PRESET")
+          CODE=$(sed -n 's/^version\/code=\(.*\)$/\1/p' "$PRESET")
+          [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || fail "version/name invalide : '$VERSION'"
+          MAJ=${BASH_REMATCH[1]}; MIN=${BASH_REMATCH[2]}; PAT=${BASH_REMATCH[3]}
+          [ "$(sed -n 's/^config\/version="\(.*\)"$/\1/p' game/project.godot)" = "$VERSION" ] \
+            || fail "project.godot et export_presets.cfg n'indiquent pas la même version"
+          SHORT="$MAJ.$MIN"; [ "$PAT" = 0 ] || SHORT="$VERSION"
+
+          # 1. Identifiant et nom propres à chaque version ; les essais de développement ont le leur.
           case "$GITHUB_REF" in
-            refs/tags/v*)
-              LABEL="$GITHUB_REF_NAME"
-              if [ "$LABEL" != "v$VERSION" ]; then
-                echo "::error::Le tag $LABEL ne correspond pas à la version du projet (v$VERSION)"; exit 1
+            refs/tags/v*|refs/heads/version/v*)
+              LABEL="v$VERSION"
+              [ "${GITHUB_REF_NAME#version/}" = "$LABEL" ] || fail "$GITHUB_REF_NAME ne correspond pas à la version du projet ($LABEL)"
+              # 2. Une version publiée n'est jamais modifiée.
+              if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = branch ] && [ "$EVENT_CREATED" != true ]; then
+                fail "La version $LABEL est déjà publiée : ne pas la modifier, créer une nouvelle version"
               fi
-              RETENTION=90 ;;
-            refs/heads/version/v*)
-              LABEL="${GITHUB_REF_NAME#version/}"
-              RETENTION=90 ;;
+              APP_ID="org.okelun.prototype.v${MAJ}_${MIN}_${PAT}"; APP_NAME="OKÉLUN V$SHORT"
+              KIND=version; RETENTION=90 ;;
             *)
               LABEL="v${VERSION}-dev-${GITHUB_SHA::7}"
-              RETENTION=14 ;;
+              APP_ID="org.okelun.prototype.dev"; APP_NAME="OKÉLUN DEV"
+              KIND=dev; RETENTION=14 ;;
           esac
-          echo "APK_NAME=okelun-${LABEL}-debug.apk" >> "$GITHUB_ENV"
-          echo "APK_LABEL=$LABEL" >> "$GITHUB_ENV"
-          echo "APK_RETENTION=$RETENTION" >> "$GITHUB_ENV"
-          echo "Version du projet : $VERSION (code $CODE) ; APK : okelun-${LABEL}-debug.apk ; conservation $RETENTION jours"
+          # Identifiant des APK des missions 002 et 003, déjà installés : jamais réutilisé.
+          [ "$APP_ID" != "org.okelun.prototype" ] || fail "identifiant org.okelun.prototype réservé aux anciens APK"
+
+          # 3. Signature stable : la clé des secrets, et elle seule.
+          [ -n "${KS_B64:-}" ] && [ -n "${KS_PASS:-}" ] \
+            || fail "Secrets OKELUN_KEYSTORE_BASE64 et OKELUN_KEYSTORE_PASSWORD absents : aucun APK n'est produit sans la signature stable (game/ANDROID_BUILD.md)"
+          KS="$RUNNER_TEMP/okelun.keystore"
+          printf '%s' "$KS_B64" | tr -d ' \r\n' | base64 -d > "$KS" || fail "secret OKELUN_KEYSTORE_BASE64 illisible"
+          FP=$(keytool -exportcert -rfc -keystore "$KS" -storepass "$KS_PASS" -alias okelun 2>/dev/null \
+            | openssl x509 -noout -fingerprint -sha256 | sed 's/.*=//; s/://g' | tr 'A-F' 'a-f') || fail "clé ou mot de passe invalide"
+          [ "$FP" = "$OKELUN_CERT_SHA256" ] || fail "la clé fournie n'est pas la clé stable OKÉLUN (empreinte $FP)"
+
+          sed -i "s|^package/unique_name=.*|package/unique_name=\"$APP_ID\"|; s|^package/name=.*|package/name=\"$APP_NAME\"|" "$PRESET"
+          grep -qx "package/unique_name=\"$APP_ID\"" "$PRESET" && grep -qx "package/name=\"$APP_NAME\"" "$PRESET" \
+            || fail "impossible d'écrire l'identifiant dans le preset"
+
+          GSHORT="${GODOT_VERSION%.*}"
+          mkdir -p ~/.config/godot
+          for f in "editor_settings-4.tres" "editor_settings-${GSHORT}.tres"; do
+            printf '%s\n' '[gd_resource type="EditorSettings" format=3]' '' '[resource]' \
+              "export/android/android_sdk_path = \"$ANDROID_SDK_PATH\"" \
+              "export/android/java_sdk_path = \"$JAVA_HOME\"" \
+              "export/android/debug_keystore = \"$KS\"" \
+              "export/android/debug_keystore_user = \"okelun\"" \
+              "export/android/debug_keystore_pass = \"$KS_PASS\"" > ~/.config/godot/"$f"
+          done
+          {
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$KS"
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=okelun"
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=$KS_PASS"
+            echo "APK_NAME=okelun-${LABEL}-debug.apk"
+            echo "APK_LABEL=$LABEL"
+            echo "APK_RETENTION=$RETENTION"
+            echo "APK_KIND=$KIND"
+            echo "APP_ID=$APP_ID"
+            echo "APP_NAME=$APP_NAME"
+            echo "APP_VERSION=$VERSION"
+            echo "APP_CODE=$CODE"
+          } >> "$GITHUB_ENV"
+          echo "Règle des versions respectée : $APP_NAME ($APP_ID), version $VERSION (code $CODE), clé stable $FP"
+          echo "APK : okelun-${LABEL}-debug.apk ; conservation $RETENTION jours"
 
       - name: Exporter l'APK de debug
         run: |
@@ -139,6 +184,21 @@ jobs:
           test -s "build/$APK_NAME"
           ls -l "build/$APK_NAME"
 
+      - name: Contrôler l'APK produit (identifiant, nom, version, signature)
+        run: |
+          set -euo pipefail
+          fail() { echo "::error title=Règle des versions OKÉLUN::$1"; exit 1; }
+          BT=$(ls -d "$ANDROID_SDK_PATH"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging "build/$APK_NAME" > badging.log
+          grep -E "^package:|application-label:" badging.log
+          grep -q "^package: name='$APP_ID' versionCode='$APP_CODE' versionName='$APP_VERSION'" badging.log \
+            || fail "identifiant ou version de l'APK inattendu (attendu $APP_ID $APP_VERSION)"
+          grep -qxF "application-label:'$APP_NAME'" badging.log || fail "nom de l'application inattendu (attendu $APP_NAME)"
+          "$BT/apksigner" verify --print-certs "build/$APK_NAME" > signature.log
+          grep -i "SHA-256" signature.log
+          grep -qi "certificate SHA-256 digest: $OKELUN_CERT_SHA256" signature.log || fail "APK non signé avec la clé stable OKÉLUN"
+          echo "APK conforme : $APP_NAME, $APP_ID, version $APP_VERSION, signature stable"
+
       - name: Publier l'APK
         uses: actions/upload-artifact@v4
         with:
@@ -147,19 +207,21 @@ jobs:
           retention-days: ${{ env.APK_RETENTION }}
           if-no-files-found: error
 
-      - name: Publier la release (tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Conserver l'APK de version (release apk-archive, sans limite de durée)
+        if: env.APK_KIND == 'version'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Un tag créé depuis la page Releases de GitHub crée aussi la release : on y ajoute alors l'APK.
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --prerelease \
-              --title "OKÉLUN $GITHUB_REF_NAME — prototype Android (debug)" \
-              --notes "APK de debug produit et testé automatiquement par la CI (tests de gameplay sans écran). Non vérifié sur téléphone au moment de la publication."
+          set -euo pipefail
+          if ! gh release view "$ARCHIVE_RELEASE" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::warning title=APK conservé 90 jours seulement::la release « $ARCHIVE_RELEASE » n'existe pas encore (game/ANDROID_BUILD.md)"
+            exit 0
           fi
+          if gh release view "$ARCHIVE_RELEASE" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qxF "$APK_NAME"; then
+            echo "::notice::$APK_NAME est déjà conservé : l'exemplaire existant n'est pas écrasé"
+            exit 0
+          fi
+          gh release upload "$ARCHIVE_RELEASE" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY"
 
       - name: Publier les journaux
         if: always()
@@ -168,3 +230,54 @@ jobs:
           name: godot-logs-${{ github.sha }}
           path: "*.log"
           if-no-files-found: ignore
+
+  # Conserve des APK déjà distribués, octet pour octet, sans les recompiler : copie dans un
+  # artefact de 90 jours et, si elle existe, dans la release apk-archive (jamais d'écrasement).
+  archive-old-apk:
+    if: github.event_name == 'workflow_dispatch' && inputs.archive_runs != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    strategy:
+      matrix:
+        include: ${{ fromJSON(inputs.archive_runs || '[{"run":"0","label":"aucun"}]') }}
+    steps:
+      - name: Récupérer l'APK d'origine
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ matrix.run }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          [[ "$LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::nom d'archive invalide"; exit 1; }
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "okelun-*" --dir old
+          mapfile -t APKS < <(find old -name '*.apk')
+          [ "${#APKS[@]}" = 1 ] || { echo "::error::${#APKS[@]} APK trouvés dans l'exécution $RUN_ID"; exit 1; }
+          mkdir -p out && cp "${APKS[0]}" "out/okelun-$LABEL-debug.apk"
+          sha256sum "${APKS[0]}" "out/okelun-$LABEL-debug.apk"
+          echo "ARCHIVE_APK=okelun-$LABEL-debug.apk" >> "$GITHUB_ENV"
+
+      - name: Conserver dans un artefact (90 jours)
+        uses: actions/upload-artifact@v4
+        with:
+          name: okelun-archive-${{ matrix.label }}
+          path: out/${{ env.ARCHIVE_APK }}
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Conserver dans la release apk-archive (sans limite de durée)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$ARCHIVE_RELEASE" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::warning title=Release absente::la release « $ARCHIVE_RELEASE » n'existe pas encore : APK conservé 90 jours seulement"
+            exit 0
+          fi
+          if gh release view "$ARCHIVE_RELEASE" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qxF "$ARCHIVE_APK"; then
+            echo "::notice::$ARCHIVE_APK est déjà conservé : l'exemplaire existant n'est pas écrasé"
+            exit 0
+          fi
+          gh release upload "$ARCHIVE_RELEASE" "out/$ARCHIVE_APK" --repo "$GITHUB_REPOSITORY"

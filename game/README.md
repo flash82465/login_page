@@ -1,6 +1,6 @@
 # OKÉLUN — Prototype Godot 4 (Android first)
 
-Socle du premier prototype jouable d'OKÉLUN (version **0.4.0**), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
+Socle du premier prototype jouable d'OKÉLUN (version **0.4.1** : jeu de la 0.4.0, installable à côté des versions précédentes), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
 
 ## Ouvrir et lancer
 
@@ -63,7 +63,7 @@ Le rendu photoréaliste visé par la direction artistique n'est **pas** atteigna
 
 Trois niveaux distincts : **programmé** (le code existe), **testé automatiquement** (un test de `tests/test_runner.gd` le vérifie en CI, sans écran, avec des touchers simulés), **vérifié sur Android** (constaté par l'auteur sur un vrai téléphone).
 
-L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de la mission 003, sans détailler chaque point. Ce code est conservé comme version 0.3.0 (l'APK affichait encore le numéro interne 0.1.0). « 0.3.0 (global) » veut donc dire que la fonction existait dans cet APK et que le combat a été jugé fonctionnel, pas que ce point précis a été contrôlé. Aucune fonction n'a encore été vérifiée sur téléphone avec la version 0.4.0.
+L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de la mission 003, sans détailler chaque point. Ce code est conservé comme version 0.3.0 (l'APK affichait encore le numéro interne 0.1.0). « 0.3.0 (global) » veut donc dire que la fonction existait dans cet APK et que le combat a été jugé fonctionnel, pas que ce point précis a été contrôlé. Aucune fonction n'a encore été vérifiée sur téléphone avec les versions 0.4.0 et 0.4.1 ; leur jeu est identique.
 
 | Fonctionnalité | Programmé | Testé automatiquement | Vérifié sur Android |
 | --- | --- | --- | --- |
@@ -97,9 +97,9 @@ Ces joueurs simulés sont volontairement frustes : ils mesurent des bornes, pas 
 
 ## Reste à développer (dans l'ordre conseillé)
 
-1. Vérifier sur téléphone l'APK 0.4.0 : K.O. et vainqueur, « Rejouer » (avec un 2e doigt posé, plusieurs revanches), multitouch, glissé entre les flèches, parade, difficulté de l'IA.
+1. Vérifier sur téléphone l'APK 0.4.1 (« OKÉLUN V0.4.1 ») : K.O. et vainqueur, « Rejouer » (avec un 2e doigt posé, plusieurs revanches), multitouch, glissé entre les flèches, parade, difficulté de l'IA.
 2. Équilibrage : l'IA perd contre un joueur qui martèle l'attaque légère (elle garde trop rarement et riposte trop peu). Piste : garde adaptative quand l'adversaire enchaîne les attaques, puis punition pendant sa récupération, réglée d'après le ressenti sur téléphone.
-3. Clé de debug stable (secret GitHub) pour pouvoir mettre l'APK à jour sans désinstaller ; plus tard, signature de release.
+3. Signature de release (la clé stable des versions de test est en place depuis 0.4.1, voir [ANDROID_BUILD.md](ANDROID_BUILD.md)).
 4. Animations : remplacer les poses provisoires par de vraies animations (squelette, transitions).
 5. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
 6. Interface : Souffle, Kalé, statut ; indication visuelle de la parade réussie.
