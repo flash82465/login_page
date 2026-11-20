@@ -6,3 +6,8 @@ extends Node
 
 func read_intent(_fighter: Fighter, intent: FighterIntent) -> void:
 	intent.clear()
+
+
+## Appelé au début de chaque manche (après « Rejouer »).
+func reset() -> void:
+	pass

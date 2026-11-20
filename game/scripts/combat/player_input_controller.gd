@@ -26,6 +26,14 @@ func read_intent(_fighter: Fighter, intent: FighterIntent) -> void:
 	intent.dodge = _consume(&"dodge")
 
 
+## Oublie les appuis mémorisés (par exemple pendant l'écran de victoire). Un bouton encore
+## tenu au moment de la revanche n'est pas compté comme un nouvel appui.
+func reset() -> void:
+	_latched.clear()
+	for action in TAP_ACTIONS:
+		_was_pressed[action] = Input.is_action_pressed(action)
+
+
 func _detect_taps() -> void:
 	for action in TAP_ACTIONS:
 		var pressed := Input.is_action_pressed(action)

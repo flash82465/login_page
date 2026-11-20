@@ -15,6 +15,10 @@ const ARENA_HALF_WIDTH := 8.15
 var match_over: bool = false
 var winner: Fighter = null
 
+## Touches détectées pendant la frame, résolues ensemble après le passage des deux
+## combattants : deux coups simultanés s'échangent (et peuvent finir en double K.O.),
+## quel que soit l'ordre de traitement des nœuds.
+var _pending_hits: Array[Dictionary] = []
 var _time_left: float = 0.0
 var _smoke_test: bool = false
 var _frames: int = 0
@@ -38,7 +42,6 @@ func _ready() -> void:
 	hud.bind(fighter_a, fighter_b)
 	for fighter: Fighter in [fighter_a, fighter_b]:
 		fighter.hitbox.hit_detected.connect(_on_hit_detected.bind(fighter))
-		fighter.knocked_out.connect(_on_knocked_out)
 	result_overlay.restart_requested.connect(restart_match)
 	_start_round()
 	_start_distance = absf(fighter_a.global_position.x - fighter_b.global_position.x)
@@ -54,17 +57,26 @@ func restart_match() -> void:
 func _start_round() -> void:
 	match_over = false
 	winner = null
+	_pending_hits.clear()
+	for child in $Fighters.get_children():
+		if child is ImpactFx:
+			child.queue_free()
 	_time_left = float(round_seconds)
 	hud.set_time(round_seconds)
 	result_overlay.hide_result()
 	for fighter: Fighter in [fighter_a, fighter_b]:
 		fighter.reset_for_round()
-		if fighter.controller is AIController:
-			(fighter.controller as AIController).reset()
+		if fighter.controller != null:
+			# Efface notamment les appuis faits pendant l'écran de victoire.
+			fighter.controller.reset()
+	camera.set_targets(fighter_a, fighter_b)
 
 
 func _physics_process(delta: float) -> void:
+	_resolve_pending_hits()
 	_enforce_spacing()
+	if not match_over:
+		_check_knockouts()
 	if not match_over:
 		_time_left = maxf(0.0, _time_left - delta)
 		hud.set_time(int(ceil(_time_left)))
@@ -102,13 +114,29 @@ func _enforce_spacing() -> void:
 func _on_hit_detected(hurtbox: Hurtbox, attack: AttackData, attack_id: int, attacker: Fighter) -> void:
 	if match_over:
 		return
-	DamageService.resolve_hit(attacker, hurtbox.owner_fighter, hurtbox, attack, attack_id)
+	_pending_hits.append({"attacker": attacker, "hurtbox": hurtbox, "attack": attack, "attack_id": attack_id})
 
 
-func _on_knocked_out(loser: Fighter) -> void:
-	if match_over:
+func _resolve_pending_hits() -> void:
+	if _pending_hits.is_empty():
 		return
-	_finish(loser.opponent, "%s l'emporte par K.O." % loser.opponent.display_name)
+	var hits := _pending_hits.duplicate()
+	_pending_hits.clear()
+	for hit in hits:
+		var hurtbox: Hurtbox = hit["hurtbox"]
+		DamageService.resolve_hit(hit["attacker"], hurtbox.owner_fighter, hurtbox, hit["attack"], hit["attack_id"])
+
+
+## Évalué une fois par frame, après tous les coups : un double K.O. donne une égalité.
+func _check_knockouts() -> void:
+	var a_out := fighter_a.state == Fighter.State.KO
+	var b_out := fighter_b.state == Fighter.State.KO
+	if a_out and b_out:
+		_finish(null, "Double K.O. : égalité")
+	elif b_out:
+		_finish(fighter_a, "%s l'emporte par K.O." % fighter_a.display_name)
+	elif a_out:
+		_finish(fighter_b, "%s l'emporte par K.O." % fighter_b.display_name)
 
 
 func _finish_by_time() -> void:

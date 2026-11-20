@@ -5,7 +5,11 @@ name: Android build (Godot)
 
 on:
   push:
-    branches: ["godot/**", "main"]
+    # version/vX.Y.Z : branches figées d'une version (points de restauration).
+    branches: ["godot/**", "main", "version/**"]
+    # Tag vX.Y.Z créé depuis GitHub : l'APK est en plus publié dans une release.
+    # Si un tag ne déclenche pas la compilation, la lancer à la main (Run workflow) sur ce tag.
+    tags: ["v*"]
     paths: ["game/**", ".github/workflows/android-build.yml"]
   pull_request:
     paths: ["game/**", ".github/workflows/android-build.yml"]
@@ -19,6 +23,8 @@ jobs:
   android-debug:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
@@ -101,21 +107,54 @@ jobs:
           grep -q "^TESTS OK" gameplay-tests.log
           if grep -E "SCRIPT ERROR|Parse Error" gameplay-tests.log; then exit 1; fi
 
+      - name: Nommer l'APK selon la version
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version\/name="\(.*\)"$/\1/p' game/export_presets.cfg)
+          CODE=$(sed -n 's/^version\/code=\(.*\)$/\1/p' game/export_presets.cfg)
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              LABEL="$GITHUB_REF_NAME"
+              if [ "$LABEL" != "v$VERSION" ]; then
+                echo "::error::Le tag $LABEL ne correspond pas à la version du projet (v$VERSION)"; exit 1
+              fi
+              RETENTION=90 ;;
+            refs/heads/version/v*)
+              LABEL="${GITHUB_REF_NAME#version/}"
+              RETENTION=90 ;;
+            *)
+              LABEL="v${VERSION}-dev-${GITHUB_SHA::7}"
+              RETENTION=14 ;;
+          esac
+          echo "APK_NAME=okelun-${LABEL}-debug.apk" >> "$GITHUB_ENV"
+          echo "APK_LABEL=$LABEL" >> "$GITHUB_ENV"
+          echo "APK_RETENTION=$RETENTION" >> "$GITHUB_ENV"
+          echo "Version du projet : $VERSION (code $CODE) ; APK : okelun-${LABEL}-debug.apk ; conservation $RETENTION jours"
+
       - name: Exporter l'APK de debug
         run: |
           set -o pipefail
           mkdir -p build
-          godot --headless --path game --export-debug "Android" "$GITHUB_WORKSPACE/build/okelun-debug.apk" 2>&1 | tee export.log
-          test -s build/okelun-debug.apk
-          ls -l build/okelun-debug.apk
+          godot --headless --path game --export-debug "Android" "$GITHUB_WORKSPACE/build/$APK_NAME" 2>&1 | tee export.log
+          test -s "build/$APK_NAME"
+          ls -l "build/$APK_NAME"
 
       - name: Publier l'APK
         uses: actions/upload-artifact@v4
         with:
-          name: okelun-android-debug-${{ github.sha }}
-          path: build/okelun-debug.apk
-          retention-days: 14
+          name: okelun-${{ env.APK_LABEL }}-debug
+          path: build/${{ env.APK_NAME }}
+          retention-days: ${{ env.APK_RETENTION }}
           if-no-files-found: error
+
+      - name: Publier la release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "build/$APK_NAME" --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "OKÉLUN $GITHUB_REF_NAME — prototype Android (debug)" \
+            --notes "APK de debug produit et testé automatiquement par la CI (tests de gameplay sans écran). Non vérifié sur téléphone au moment de la publication."
 
       - name: Publier les journaux
         if: always()

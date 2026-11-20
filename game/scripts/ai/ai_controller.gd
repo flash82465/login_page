@@ -1,18 +1,36 @@
 class_name AIController
 extends FighterController
-## IA de base de Mabé : s'approche, attaque, se met en garde ou esquive, recule parfois.
+## IA de base de Mabé : s'approche, attaque, se met en garde, esquive, gère la distance.
 ##
-## Elle réagit aux attaques adverses avec un temps de réaction humain (10 frames) : les
-## attaques légères, rapides, la surprennent souvent ; les lourdes peuvent être parées.
+## Défense en deux temps :
+## - par réaction : face à une attaque lancée à portée, garde ou esquive après un temps de
+##   réaction humain (10 frames) ; trop lent contre une attaque légère, suffisant contre une lourde ;
+## - par anticipation : au contact, elle choisit parfois de lever sa garde avant d'être attaquée,
+##   ce qui la protège aussi des attaques légères.
+## Entre deux attaques, elle garde ses distances au lieu de rester figée.
+## Elle punit : si l'adversaire à portée est déséquilibré ou en récupération d'attaque, elle frappe.
 ## Les choix sont aléatoires mais reproductibles (graine fixe), ce qui permet de la tester.
+##
+## Réglages mission 004 : rythme d'attaque réduit (≈ 1 attaque toutes les 2 s au contact au lieu
+## de 1 par seconde), attaques lourdes moins fréquentes, garde par anticipation ajoutée.
 
-enum Plan { APPROACH, ATTACK, RETREAT, WAIT }
+enum Plan { APPROACH, ATTACK, GUARD, RETREAT, WAIT }
 
 @export var attack_range: float = 0.95
 @export var reaction_frames: int = 10
 @export_range(0.0, 1.0) var block_chance: float = 0.3
 @export_range(0.0, 1.0) var dodge_chance: float = 0.12
-@export_range(0.0, 1.0) var heavy_chance: float = 0.3
+@export_range(0.0, 1.0) var heavy_chance: float = 0.25
+## Probabilités des choix au contact (le reste : attendre en gérant la distance).
+@export_range(0.0, 1.0) var attack_weight: float = 0.45
+@export_range(0.0, 1.0) var guard_weight: float = 0.2
+@export_range(0.0, 1.0) var retreat_weight: float = 0.15
+## Pause après chaque attaque, en frames (laisse des ouvertures au joueur).
+@export var wait_after_attack_min: int = 40
+@export var wait_after_attack_max: int = 80
+## Distance confortable pendant les pauses.
+@export var spacing_min: float = 0.85
+@export var spacing_max: float = 1.4
 @export var rng_seed: int = 20261119
 
 var _rng := RandomNumberGenerator.new()
@@ -47,8 +65,19 @@ func read_intent(fighter: Fighter, intent: FighterIntent) -> void:
 	var distance := absf(dx)
 	var toward := signf(dx)
 
-	# Défense : une nouvelle attaque adverse à portée déclenche, après un temps de réaction,
-	# une garde ou une esquive (ou rien).
+	# Punition : adversaire à portée déséquilibré (parade, coup reçu) ou en récupération.
+	var can_act := fighter.state == Fighter.State.IDLE or fighter.state == Fighter.State.WALK \
+		or fighter.state == Fighter.State.BLOCK
+	if can_act and distance <= attack_range \
+			and (opponent.state == Fighter.State.HITSTUN or opponent.is_recovering()):
+		_block_hold = 0
+		_pending_defense = 0
+		intent.attack_light = true
+		_plan = Plan.WAIT
+		_plan_frames = _rng.randi_range(wait_after_attack_min, wait_after_attack_max)
+		return
+
+	# Défense par réaction à une nouvelle attaque adverse à portée.
 	if opponent.is_attacking() and opponent.current_attack_id != _last_seen_attack_id:
 		_last_seen_attack_id = opponent.current_attack_id
 		if distance < attack_range + 0.5:
@@ -75,7 +104,6 @@ func read_intent(fighter: Fighter, intent: FighterIntent) -> void:
 		intent.block = true
 		return
 
-	# Attaque : approcher, frapper, puis laisser une ouverture.
 	if _plan_frames > 0:
 		_plan_frames -= 1
 	else:
@@ -95,11 +123,16 @@ func read_intent(fighter: Fighter, intent: FighterIntent) -> void:
 				else:
 					intent.attack_light = true
 				_plan = Plan.WAIT
-				_plan_frames = _rng.randi_range(18, 40)
+				_plan_frames = _rng.randi_range(wait_after_attack_min, wait_after_attack_max)
+		Plan.GUARD:
+			intent.block = true
 		Plan.RETREAT:
 			intent.move_axis = -toward
 		Plan.WAIT:
-			pass
+			if distance < spacing_min:
+				intent.move_axis = -toward
+			elif distance > spacing_max:
+				intent.move_axis = toward
 
 
 func _choose_plan(distance: float) -> void:
@@ -108,10 +141,13 @@ func _choose_plan(distance: float) -> void:
 		_plan_frames = 20
 		return
 	var roll := _rng.randf()
-	if roll < 0.65:
+	if roll < attack_weight:
 		_plan = Plan.ATTACK
 		_plan_frames = 30
-	elif roll < 0.82:
+	elif roll < attack_weight + guard_weight:
+		_plan = Plan.GUARD
+		_plan_frames = _rng.randi_range(20, 40)
+	elif roll < attack_weight + guard_weight + retreat_weight:
 		_plan = Plan.RETREAT
 		_plan_frames = 12
 	else:

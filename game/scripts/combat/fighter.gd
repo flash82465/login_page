@@ -16,6 +16,9 @@ signal attack_started(fighter: Fighter, attack: AttackData)
 
 const INPUT_BUFFER_FRAMES := 6
 const PARRY_WINDOW_FRAMES := 8
+## Une nouvelle fenêtre de parade ne s'ouvre pas avant ce délai : marteler le bouclier
+## ne rend pas invulnérable.
+const PARRY_REARM_FRAMES := 30
 const DODGE_FRAMES := 20
 const DODGE_INVULNERABLE_FROM := 2
 const DODGE_INVULNERABLE_TO := 14
@@ -50,6 +53,8 @@ var _stun_frames: int = 0
 var _dodge_dir: float = 0.0
 var _dodge_cooldown: int = 0
 var _block_started_frame: int = -1000
+var _parry_armed: bool = false
+var _next_parry_frame: int = 0
 var _buffered_attack: AttackData
 var _buffer_frames: int = 0
 var _flash_frames: int = 0
@@ -95,6 +100,8 @@ func reset_for_round() -> void:
 	_dodge_cooldown = 0
 	_flash_frames = 0
 	_block_started_frame = -1000
+	_parry_armed = false
+	_next_parry_frame = 0
 	hitbox.deactivate()
 	_enter(State.IDLE)
 	health_changed.emit(health, max_health)
@@ -152,11 +159,17 @@ func is_blocking() -> bool:
 
 
 func is_parrying() -> bool:
-	return state == State.BLOCK and _frame - _block_started_frame <= PARRY_WINDOW_FRAMES
+	return state == State.BLOCK and _parry_armed and _frame - _block_started_frame <= PARRY_WINDOW_FRAMES
 
 
 func is_attacking() -> bool:
 	return state == State.ATTACK
+
+
+## Vrai pendant la récupération d'une attaque : le combattant est punissable.
+func is_recovering() -> bool:
+	return state == State.ATTACK and current_attack != null \
+		and _state_frame > current_attack.startup_frames + current_attack.active_frames
 
 
 # --- Conséquences appliquées par le système de dégâts ------------------------------------
@@ -256,6 +269,9 @@ func _process_attack(delta: float) -> void:
 
 func _start_block() -> void:
 	_block_started_frame = _frame
+	_parry_armed = _frame >= _next_parry_frame
+	if _parry_armed:
+		_next_parry_frame = _frame + PARRY_REARM_FRAMES
 	_enter(State.BLOCK)
 
 

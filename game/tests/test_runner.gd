@@ -33,6 +33,15 @@ func _ready() -> void:
 	await _test_ko_victory_and_restart()
 	await _test_time_out_victory()
 	await _test_ai_approaches_and_attacks()
+	# Mission 004 — stabilisation
+	await _test_simultaneous_hits_trade()
+	await _test_double_ko_is_a_draw()
+	await _test_ai_side_ko_names_ai_winner()
+	await _test_restart_by_touch_any_finger_without_phantom_attack()
+	await _test_parry_mashing_does_not_rearm()
+	await _test_multitouch_move_attack_and_guard()
+	await _test_slide_between_arrows_switches_direction()
+	await _test_ai_balance()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -110,6 +119,25 @@ func _touch(index: int, position: Vector2, pressed: bool) -> void:
 	event.position = position
 	event.pressed = pressed
 	Input.parse_input_event(event)
+
+
+func _control_center(control: Control) -> Vector2:
+	return control.get_viewport().get_final_transform() * control.get_global_rect().get_center()
+
+
+func _drag(index: int, from: Vector2, to: Vector2) -> void:
+	var event := InputEventScreenDrag.new()
+	event.index = index
+	event.position = to
+	event.relative = to - from
+	Input.parse_input_event(event)
+
+
+func _tap(index: int, position: Vector2) -> void:
+	_touch(index, position, true)
+	await _frames(2)
+	_touch(index, position, false)
+	await _frames(2)
 
 
 func _states_during(fighter: Fighter, frames: int) -> Array:
@@ -389,18 +417,253 @@ func _test_ai_approaches_and_attacks() -> void:
 	var a: Fighter = m.fighter_a
 	var b: Fighter = m.fighter_b
 	var idle_frames := 0
+	var idle_run := 0
+	var longest_idle := 0
 	var moved := 0.0
 	var last_x := b.global_position.x
 	for i in 600:
 		await _frames(1)
 		if b.state == Fighter.State.IDLE:
 			idle_frames += 1
+			idle_run += 1
+			longest_idle = maxi(longest_idle, idle_run)
+		else:
+			idle_run = 0
 		moved += absf(b.global_position.x - last_x)
 		last_x = b.global_position.x
 	_check(b.current_attack_id >= 3, "l'IA attaque trop peu (%d attaques en 10 s)" % b.current_attack_id)
 	_check(a.health < a.max_health, "l'IA n'a jamais touché Tandé")
 	_check(moved > 1.0, "l'IA ne se déplace pas (%.2f m parcourus)" % moved)
-	_check(idle_frames < 450, "l'IA reste immobile %d frames sur 600" % idle_frames)
-	print("    IA : %d attaques, Tandé à %.1f PV, %.1f m parcourus, %d frames immobile" % [b.current_attack_id, a.health, moved, idle_frames])
+	_check(longest_idle < 120, "l'IA reste immobile %d frames d'affilée (plus de 2 s)" % longest_idle)
+	print("    IA : %d attaques, Tandé à %.1f PV, %.1f m parcourus, %d frames immobile (au plus %d d'affilée)" % [b.current_attack_id, a.health, moved, idle_frames, longest_idle])
 	await _close(m)
+	_end()
+
+
+# --- Mission 004 : cohérence de fin de combat ----------------------------------------------
+
+func _test_simultaneous_hits_trade() -> void:
+	_begin("Coups simultanés : les deux combattants sont touchés (aucun avantage lié à l'ordre)")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -0.45)
+	_place(b, 0.45)
+	await _frames(1)
+	_ctrl(a).press_light()
+	_ctrl(b).press_light()
+	await _frames(30)
+	_check(is_equal_approx(a.health, a.max_health - LIGHT_DAMAGE), "Tandé n'a pas été touché (vie %.1f)" % a.health)
+	_check(is_equal_approx(b.health, b.max_health - LIGHT_DAMAGE), "Mabé n'a pas été touchée (vie %.1f)" % b.health)
+	await _close(m)
+	_end()
+
+
+func _test_double_ko_is_a_draw() -> void:
+	_begin("Double K.O. simultané : égalité, aucun vainqueur")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -0.45)
+	_place(b, 0.45)
+	a.health = 5.0
+	b.health = 5.0
+	await _frames(1)
+	_ctrl(a).press_light()
+	_ctrl(b).press_light()
+	await _frames(30)
+	_check(a.state == Fighter.State.KO and b.state == Fighter.State.KO, "les deux ne sont pas K.O. (états %s / %s)" % [a.state, b.state])
+	_check(m.match_over and m.winner == null, "un vainqueur a été désigné pour un double K.O.")
+	_check(m.result_overlay.result_text().contains("égalité"), "égalité non affichée (« %s »)" % m.result_overlay.result_text())
+	await _close(m)
+	_end()
+
+
+func _test_ai_side_ko_names_ai_winner() -> void:
+	_begin("K.O. infligé par Mabé : Mabé est désignée vainqueur")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -0.45)
+	_place(b, 0.45)
+	a.health = 5.0
+	await _frames(1)
+	_ctrl(b).press_light()
+	await _frames(30)
+	_check(m.winner == b, "mauvais vainqueur")
+	_check(m.result_overlay.result_text().contains(b.display_name), "nom de Mabé absent (« %s »)" % m.result_overlay.result_text())
+	await _close(m)
+	_end()
+
+
+func _test_restart_by_touch_any_finger_without_phantom_attack() -> void:
+	_begin("« Rejouer » au doigt (1er ou 2e doigt), deux revanches de suite, sans attaque fantôme")
+	var m = await _new_match(false, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	var overlay: ResultOverlay = m.result_overlay
+	var light: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/LightAttack")
+	var left: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var restarts := [0]
+	overlay.restart_requested.connect(func() -> void: restarts[0] += 1)
+	# Manche 1 : K.O. au doigt, tap pendant l'écran de victoire, doigt posé sur une flèche,
+	# puis « Rejouer » avec un deuxième doigt.
+	_place(a, -0.45)
+	_place(b, 0.45)
+	b.health = 5.0
+	await _tap(1, _button_center(light))
+	await _frames(30)
+	_check(overlay.visible, "écran de victoire absent après le K.O.")
+	await _tap(1, _button_center(light))
+	_touch(0, _button_center(left), true)
+	await _frames(5)
+	await _tap(1, _control_center(overlay.restart_button()))
+	_check(restarts[0] == 1, "« Rejouer » (2e doigt) : %d revanche(s) demandée(s) au lieu de 1" % restarts[0])
+	_check(not m.match_over and not overlay.visible, "le combat n'a pas redémarré")
+	var attacks_before := a.current_attack_id
+	var x_before := a.global_position.x
+	await _frames(15)
+	_check(a.current_attack_id == attacks_before, "attaque fantôme après la revanche (tap fait pendant l'écran de victoire)")
+	_check(a.global_position.x < x_before - 0.2, "le doigt resté sur la flèche ne déplace pas le combattant après la revanche")
+	_touch(0, _button_center(left), false)
+	await _frames(5)
+	# Manche 2 : nouveau K.O., « Rejouer » avec le premier doigt (clic émulé par Android).
+	_place(a, -0.45)
+	_place(b, 0.45)
+	b.health = 5.0
+	await _frames(2)
+	await _tap(1, _button_center(light))
+	await _frames(30)
+	_check(overlay.visible, "écran de victoire absent au 2e K.O.")
+	await _tap(0, _control_center(overlay.restart_button()))
+	_check(restarts[0] == 2, "« Rejouer » (1er doigt) : %d revanche(s) au total au lieu de 2" % restarts[0])
+	_check(not m.match_over and b.health == b.max_health and b.state == Fighter.State.IDLE, "la 2e revanche ne remet pas le combat à neuf")
+	await _close(m)
+	_end()
+
+
+# --- Mission 004 : parade et commandes tactiles -------------------------------------------
+
+func _test_parry_mashing_does_not_rearm() -> void:
+	_begin("Parade : marteler le bouclier ne rouvre pas la fenêtre (simple garde)")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -0.45)
+	_place(b, 0.45)
+	await _frames(1)
+	_ctrl(a).press_heavy()
+	_ctrl(b).block = true
+	await _frames(3)
+	_ctrl(b).block = false
+	await _frames(6)
+	_ctrl(b).block = true
+	var states: Array = await _states_during(a, 40)
+	_check(is_equal_approx(b.health, b.max_health - HEAVY_DAMAGE * 0.2), "attendu une garde simple (vie %.1f), obtenu %.1f" % [b.max_health - HEAVY_DAMAGE * 0.2, b.health])
+	_check(not states.has(Fighter.State.HITSTUN), "l'attaquant a été déséquilibré : la parade s'est rouverte")
+	await _close(m)
+	_end()
+
+
+func _test_multitouch_move_attack_and_guard() -> void:
+	_begin("Multitouch : flèche maintenue + attaque d'un autre doigt, puis + bouclier maintenu")
+	var m = await _new_match(false, true)
+	var a: Fighter = m.fighter_a
+	var left: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var light: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/LightAttack")
+	var block: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/Block")
+	_touch(0, _button_center(left), true)
+	await _frames(10)
+	await _tap(1, _button_center(light))
+	_check(a.current_attack_id == 1, "l'attaque d'un 2e doigt n'est pas prise en compte pendant le déplacement")
+	_check(Input.is_action_pressed(&"move_left"), "la flèche a été relâchée par le 2e doigt")
+	await _frames(30)
+	var x1 := a.global_position.x
+	await _frames(10)
+	_check(a.global_position.x < x1 - 0.2, "le déplacement ne reprend pas après l'attaque")
+	_touch(2, _button_center(block), true)
+	await _frames(10)
+	_check(a.state == Fighter.State.BLOCK, "le bouclier maintenu par un autre doigt ne met pas en garde (état %s)" % a.state)
+	var x2 := a.global_position.x
+	await _frames(20)
+	_check(absf(a.global_position.x - x2) < 0.2, "le combattant avance en garde")
+	_touch(2, _button_center(block), false)
+	await _frames(15)
+	_check(a.state == Fighter.State.WALK, "le déplacement ne reprend pas après la garde (état %s)" % a.state)
+	_touch(0, _button_center(left), false)
+	await _frames(5)
+	_check(not Input.is_action_pressed(&"move_left") and not Input.is_action_pressed(&"block"), "des actions restent enfoncées après relâchement")
+	await _close(m)
+	_end()
+
+
+func _test_slide_between_arrows_switches_direction() -> void:
+	_begin("Glisser le doigt d'une flèche à l'autre change de direction sans relever le doigt")
+	var m = await _new_match(false, true)
+	var a: Fighter = m.fighter_a
+	var left: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var right: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
+	var from := _button_center(left)
+	var to := _button_center(right)
+	_touch(0, from, true)
+	await _frames(20)
+	_drag(0, from, to)
+	await _frames(3)
+	_check(not Input.is_action_pressed(&"move_left") and Input.is_action_pressed(&"move_right"), "la flèche n'a pas changé en glissant")
+	var x := a.global_position.x
+	await _frames(35)
+	_check(a.global_position.x > x + 0.2, "le combattant ne repart pas vers la droite")
+	_touch(0, to, false)
+	await _frames(3)
+	_check(not Input.is_action_pressed(&"move_right"), "la flèche droite reste enfoncée")
+	await _close(m)
+	_end()
+
+
+# --- Mission 004 : équilibrage de l'IA ----------------------------------------------------
+
+func _simulate_round(seed_value: int, mode: String) -> Dictionary:
+	var m = await _new_match(true, false)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	var ai: AIController = b.controller
+	ai.rng_seed = seed_value
+	ai.reset()
+	var ctrl = _ctrl(a)
+	var frames := 0
+	var limit: int = m.round_seconds * 60 + 30
+	while not m.match_over and frames < limit:
+		if mode == "spam":
+			var dx := b.global_position.x - a.global_position.x
+			ctrl.move_axis = signf(dx) if absf(dx) > 0.9 else 0.0
+			if absf(dx) <= 1.0 and (a.state == Fighter.State.IDLE or a.state == Fighter.State.WALK):
+				ctrl.press_light()
+		await _frames(1)
+		frames += 1
+	var winner := "égalité"
+	if m.winner == a:
+		winner = "Tandé"
+	elif m.winner == b:
+		winner = "Mabé"
+	var result := {
+		"winner": winner, "seconds": frames / 60.0, "ko": a.state == Fighter.State.KO or b.state == Fighter.State.KO,
+		"tande": a.health, "mabe": b.health, "ai_attacks": b.current_attack_id, "player_attacks": a.current_attack_id,
+	}
+	await _close(m)
+	return result
+
+
+func _test_ai_balance() -> void:
+	_begin("Équilibrage IA : ni expéditive contre un joueur passif, ni à la merci d'un joueur qui martèle")
+	var seeds := [20261119, 7, 99]
+	for seed_value in seeds:
+		var r: Dictionary = await _simulate_round(seed_value, "idle")
+		print("    BALANCE joueur passif   graine %8d : %s gagne en %5.1f s, Tandé %5.1f PV, Mabé %5.1f PV, %2d attaques IA" % [seed_value, r["winner"], r["seconds"], r["tande"], r["mabe"], r["ai_attacks"]])
+		_check(r["winner"] == "Mabé" and r["ko"], "contre un joueur passif, l'IA doit gagner par K.O. (graine %d)" % seed_value)
+		_check(r["seconds"] >= 12.0 and r["seconds"] <= 60.0, "K.O. d'un joueur passif en %.1f s, hors de la plage 12–60 s (graine %d)" % [r["seconds"], seed_value])
+	for seed_value in seeds:
+		var r: Dictionary = await _simulate_round(seed_value, "spam")
+		print("    BALANCE joueur marteleur graine %8d : %s gagne en %5.1f s, Tandé %5.1f PV, Mabé %5.1f PV, %2d attaques IA, %3d attaques joueur" % [seed_value, r["winner"], r["seconds"], r["tande"], r["mabe"], r["ai_attacks"], r["player_attacks"]])
+		_check(r["tande"] < 100.0, "le marteleur gagne sans être touché (graine %d) : l'IA ne se défend pas" % seed_value)
+		_check(r["mabe"] < 100.0, "l'IA gagne sans être touchée par le marteleur (graine %d)" % seed_value)
 	_end()
