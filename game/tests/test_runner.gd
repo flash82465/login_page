@@ -654,7 +654,7 @@ func _simulate_round(seed_value: int, mode: String) -> Dictionary:
 
 
 func _test_ai_balance() -> void:
-	_begin("Équilibrage IA : ni expéditive contre un joueur passif, ni à la merci d'un joueur qui martèle")
+	_begin("Équilibrage IA (mesure) : un joueur passif tient au moins 12 s ; contre un joueur qui martèle, les deux combattants sont touchés")
 	var seeds := [20261119, 7, 99]
 	for seed_value in seeds:
 		var r: Dictionary = await _simulate_round(seed_value, "idle")

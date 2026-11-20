@@ -91,14 +91,14 @@ L'auteur a constaté un premier combat fonctionnel sur téléphone avec l'APK de
 | Joueur simulé | Résultat |
 | --- | --- |
 | Immobile, sans défense | K.O. en 15,8 à 19,7 s (avant la mission 004 : moins de 10 s) ; l'IA attaque 9 à 11 fois |
-| Avance et martèle l'attaque légère, sans jamais se protéger | perd en 8,9 à 11,0 s ; il touche quand même l'IA, qui finit entre 62,5 et 92,5 PV |
+| Avance et martèle l'attaque légère, sans jamais se protéger | **gagne** en 8,9 à 11,0 s en gardant 62,5 à 92,5 PV ; l'IA n'attaque que 4 à 6 fois |
 
-Ces joueurs simulés sont volontairement frustes : ils mesurent des bornes (l'IA n'est ni expéditive, ni à la merci du martèlement), pas le ressenti. La difficulté face à un vrai joueur, qui se déplace, se protège et esquive, reste à juger sur téléphone. Les réglages sont les variables exportées de `scripts/ai/ai_controller.gd`.
+Ces joueurs simulés sont volontairement frustes : ils mesurent des bornes, pas le ressenti. Résultat : l'IA n'est plus expéditive contre un joueur passif, mais un simple martèlement de l'attaque légère la bat. C'est le principal défaut d'équilibrage restant ; le test vérifie seulement que les deux combattants se touchent. La difficulté face à un vrai joueur, qui se déplace, se protège et esquive, reste à juger sur téléphone. Les réglages sont les variables exportées de `scripts/ai/ai_controller.gd`.
 
 ## Reste à développer (dans l'ordre conseillé)
 
 1. Vérifier sur téléphone l'APK 0.4.0 : K.O. et vainqueur, « Rejouer » (avec un 2e doigt posé, plusieurs revanches), multitouch, glissé entre les flèches, parade, difficulté de l'IA.
-2. Équilibrage à la main d'après ce ressenti : l'IA punit fortement le martèlement de l'attaque légère.
+2. Équilibrage : l'IA perd contre un joueur qui martèle l'attaque légère (elle garde trop rarement et riposte trop peu). Piste : garde adaptative quand l'adversaire enchaîne les attaques, puis punition pendant sa récupération, réglée d'après le ressenti sur téléphone.
 3. Clé de debug stable (secret GitHub) pour pouvoir mettre l'APK à jour sans désinstaller ; plus tard, signature de release.
 4. Animations : remplacer les poses provisoires par de vraies animations (squelette, transitions).
 5. Portage GDScript du Damage Priority & Resolution System, en reprenant les 21 tests du prototype JavaScript, puis branchement dans `DamageService`.
