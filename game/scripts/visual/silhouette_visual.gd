@@ -182,6 +182,23 @@ func _build() -> void:
 		var z := float(piece["z"]) - _bone_z(piece["bone"])
 		# Pas de liseré sur les pièces plates : vues de profil, leur tranche donnerait un pointillé lumineux.
 		_add_mesh(_bone_nodes[piece["bone"]], _prism(local, piece["thickness"]), Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, z)), _material(piece["color"], false))
+	for volume in _profile["volumes"]:
+		var owner_bone: StringName = volume["bone"]
+		var z := float(volume["z"]) - _bone_z(owner_bone)
+		var material := _material(volume["color"], false)
+		if volume["kind"] == &"jupe":
+			_add_mesh(_bone_nodes[owner_bone], _skirt(owner_bone, volume["rings"], z), Transform3D.IDENTITY, material)
+		else:
+			var center := _to_bone_local(owner_bone, volume["center"])
+			var radii: Vector3 = volume["radii"]
+			var sphere := SphereMesh.new()
+			sphere.radius = 1.0
+			sphere.height = 2.0
+			sphere.radial_segments = 16
+			sphere.rings = 8
+			# Demi-axes donnés dans la pose de référence : on annule la rotation du nœud de l'os.
+			var turn := Basis(Vector3.BACK, -(float(_info[owner_bone]["angle"]) - PI / 2.0))
+			_add_mesh(_bone_nodes[owner_bone], sphere, Transform3D(turn * Basis.from_scale(radii), Vector3(center.x, center.y, z)), material)
 	var mark_material := _material(_profile["mark"], false)
 	for mark in _profile["marks"]:
 		var a := _to_bone_local(mark["bone"], mark["a"])
@@ -252,6 +269,15 @@ func _outline_points() -> PackedVector2Array:
 	for extra in _profile["extra"]:
 		pts.append_array(_disc(_follow_bone(extra["bone"], extra["a"]) + lift, extra["r0"]))
 		pts.append_array(_disc(_follow_bone(extra["bone"], extra["b"]) + lift, extra["r1"]))
+	for volume in _profile["volumes"]:
+		if volume["kind"] == &"jupe":
+			for ring: Vector4 in volume["rings"]:
+				pts.append(_follow_bone(volume["bone"], Vector2(ring.y, ring.x)) + lift)
+				pts.append(_follow_bone(volume["bone"], Vector2(ring.z, ring.x)) + lift)
+		else:
+			var radii: Vector3 = volume["radii"]
+			var c := _follow_bone(volume["bone"], volume["center"]) + lift
+			pts.append_array(PackedVector2Array([c + Vector2(-radii.x, 0.0), c + Vector2(radii.x, 0.0), c + Vector2(0.0, radii.y)]))
 	return pts
 
 
@@ -333,6 +359,31 @@ static func _tapered_capsule(r0: float, r1: float, length: float) -> ArrayMesh:
 static func _ring_vertex(st: SurfaceTool, p: Vector4, t: float) -> void:
 	st.set_normal(Vector3(p.z * cos(t), p.w, p.z * sin(t)).normalized())
 	st.add_vertex(Vector3(p.x * cos(t), p.y, p.x * sin(t)))
+
+
+## Jupe : anneaux elliptiques (hauteur, bord arrière, bord avant, demi-profondeur) décrits dans la
+## pose de référence, reliés en un volume centré sur le corps.
+func _skirt(bone: StringName, rings: Array, z: float) -> ArrayMesh:
+	var loops: Array[PackedVector3Array] = []
+	for ring: Vector4 in rings:
+		var loop := PackedVector3Array()
+		var cx := (ring.y + ring.z) * 0.5
+		var hx := (ring.z - ring.y) * 0.5
+		for j in RADIAL_SEGMENTS + 1:
+			var t := TAU * float(j) / RADIAL_SEGMENTS
+			var p := _to_bone_local(bone, Vector2(cx + hx * cos(t), ring.x))
+			loop.append(Vector3(p.x, p.y, z + ring.w * sin(t)))
+		loops.append(loop)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in loops.size() - 1:
+		var a := loops[k]
+		var b := loops[k + 1]
+		for j in RADIAL_SEGMENTS:
+			for v in [a[j], a[j + 1], b[j + 1], a[j], b[j + 1], b[j]]:
+				st.set_normal(Vector3.BACK)
+				st.add_vertex(v)
+	return st.commit()
 
 
 ## Pièce plate (costume) : contour extrudé sur l'épaisseur donnée, centré en z = 0.

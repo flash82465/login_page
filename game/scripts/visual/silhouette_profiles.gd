@@ -5,7 +5,8 @@ extends RefCounted
 ## Coordonnées en mètres, vue de profil : combattant tourné vers +X, pieds au sol (Y = 0).
 ## Une pose donne la position des 19 articulations (ordre : SilhouetteVisual.JOINTS) ; le pantin
 ## en déduit l'angle de chaque os et garde des os de longueur fixe (celle de la pose d'attente).
-## Les pièces de costume et les Marques sont décrites dans la pose d'attente et suivent leur os.
+## Les pièces de costume, les volumes et les Marques sont décrits dans la pose d'attente et suivent
+## leur os. Volumes : « jupe » (anneaux : hauteur, arrière, avant, demi-profondeur) et « dome » (ellipsoïde).
 ## Costume purement décoratif : il ne change aucune zone de touche.
 
 
@@ -61,18 +62,11 @@ static func _tande() -> Dictionary:
 			]),
 		},
 		"costume": [
-			{"bone": &"belly", "z": 0.21, "thickness": 0.025, "color": Color(0.11, 0.07, 0.047),
-				"polygon": PackedVector2Array([
-					Vector2(0.13, 1.045), Vector2(0.255, 0.725), Vector2(0.16, 0.705), Vector2(0.075, 0.74),
-					Vector2(0.0, 0.705), Vector2(-0.12, 0.715), Vector2(-0.225, 0.735), Vector2(-0.15, 1.045),
-					Vector2(-0.01, 1.065),
-				])},
-			{"bone": &"upper_arm_n", "z": 0.2, "thickness": 0.03, "color": Color(0.13, 0.115, 0.1),
-				"polygon": PackedVector2Array([
-					Vector2(-0.03, 1.44), Vector2(-0.01, 1.5), Vector2(0.03, 1.545), Vector2(0.08, 1.56),
-					Vector2(0.13, 1.54), Vector2(0.165, 1.49), Vector2(0.17, 1.43), Vector2(0.13, 1.4),
-					Vector2(0.07, 1.39), Vector2(0.01, 1.4),
-				])},
+		],
+		"volumes": [
+			{"bone": &"belly", "kind": &"jupe", "z": 0.0, "color": Color(0.11, 0.07, 0.047),
+				"rings": [Vector4(1.05, -0.15, 0.13, 0.165), Vector4(0.9, -0.185, 0.19, 0.19), Vector4(0.72, -0.225, 0.255, 0.215)]},
+			{"bone": &"upper_arm_n", "kind": &"dome", "z": 0.095, "color": Color(0.13, 0.115, 0.1), "center": Vector2(0.07, 1.47), "radii": Vector3(0.105, 0.075, 0.1)},
 		],
 		"extra": [
 		],
@@ -145,6 +139,8 @@ static func _mabe() -> Dictionary:
 				"polygon": PackedVector2Array([
 					Vector2(-0.22, 1.22), Vector2(-0.31, 1.27), Vector2(-0.26, 1.15),
 				])},
+		],
+		"volumes": [
 		],
 		"extra": [
 			{"bone": &"chest", "z": 0.0, "a": Vector2(-0.04, 1.2), "b": Vector2(0.03, 1.44), "r0": 0.17, "r1": 0.17},
