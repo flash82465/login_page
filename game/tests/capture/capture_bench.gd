@@ -45,7 +45,7 @@ func _ready() -> void:
 			_title = arg.substr(8)
 		elif arg.begins_with("--generation="):
 			_mode = arg.substr(13)
-	if _mode == "silhouette":
+	if _mode == "silhouette" or _mode == "animations":
 		_generation = load(SILHOUETTE_GENERATION)
 	for sub in ["raw", "planches", "sequences"]:
 		DirAccess.make_dir_recursive_absolute(_out.path_join(sub))
@@ -58,6 +58,11 @@ func _ready() -> void:
 	if _mode == "silhouette":
 		await _capture_silhouettes()
 		_finish()
+		return
+	if _mode == "animations":
+		await _capture_animations()
+		if not _failed:
+			_finish()
 		return
 	for fighter_index in 2:
 		for facing_right in [true, false]:
@@ -672,3 +677,217 @@ func _make_rows_planche(file: String, title: String, subtitle: String, rows: Arr
 	img.save_jpg(_out.path_join("planches").path_join(file), 0.9)
 	vp.queue_free()
 	_manifest["planches"].append({"file": file, "title": title})
+
+
+# --- Animations des silhouettes (étape 3) -------------------------------------------------
+
+## Zone de frappe en rouge translucide ; sa visibilité suit l'activité réelle de la zone.
+func _show_hitbox(fighter: Fighter) -> MeshInstance3D:
+	var shape_node := fighter.hitbox.get_node("CollisionShape3D") as CollisionShape3D
+	var box := BoxMesh.new()
+	box.size = (shape_node.shape as BoxShape3D).size
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.no_depth_test = true
+	material.albedo_color = Color(1.0, 0.15, 0.1, 0.35)
+	var mi := MeshInstance3D.new()
+	mi.mesh = box
+	mi.material_override = material
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = false
+	shape_node.add_child(mi)
+	return mi
+
+
+func _actor_tile(ctx: Dictionary, framing: String = "avant") -> Image:
+	var img := _grab()
+	var actor: Fighter = ctx["actor"]
+	var dir: float = ctx["dir"]
+	if framing == "ko":
+		var tile := _crop(img, ctx["m"].camera, actor.global_position + Vector3(-dir * 0.95, 0.9, 0.0), Vector2i(720, 900))
+		tile.resize(TILE.x, TILE.y, Image.INTERPOLATE_LANCZOS)
+		return tile
+	var shift := 0.2 if framing == "avant" else -0.1
+	return _crop(img, ctx["m"].camera, actor.global_position + Vector3(dir * shift, 0.92, 0.0), TILE)
+
+
+## Avance jusqu'à ce que le combattant soit dans l'état voulu, et capture aux images d'état demandées.
+func _capture_state_frames(ctx: Dictionary, state: int, frames: Array, labels: Array, overlay: MeshInstance3D = null, framing: String = "avant") -> Array:
+	var actor: Fighter = ctx["actor"]
+	var images := []
+	for i in 140:
+		await _step()
+		if overlay != null:
+			overlay.visible = actor.hitbox.is_active()
+		if actor.state == state and frames.has(actor.get("_state_frame")):
+			images.append(_actor_tile(ctx, framing))
+			if images.size() == frames.size():
+				break
+	if overlay != null:
+		overlay.visible = false
+	if images.size() != frames.size():
+		_fail("%s : %d images capturées sur %d (%s)" % [ctx["who"], images.size(), frames.size(), labels])
+	return images
+
+
+func _capture_animations() -> void:
+	for fighter_index in 2:
+		var rows := []
+		# Attente : respiration (cycle de 96 images).
+		var c := await _setup(fighter_index, true, 2.4)
+		_hide_visual(c["other"])
+		var breath := []
+		for k in 3:
+			await _steps(4 if k == 0 else 24)
+			breath.append(_actor_tile(c))
+		rows.append({"label": "Attente en garde (respiration)", "images": breath, "captions": ["inspiration", "mi-souffle", "expiration"]})
+		await _teardown(c)
+		# Marche avant, marche arrière.
+		for forward in [true, false]:
+			c = await _setup(fighter_index, true, 4.0 if forward else 2.4)
+			_hide_visual(c["other"])
+			c["me"].move_axis = c["dir"] * (1.0 if forward else -1.0)
+			await _steps(12)
+			var walk := []
+			for k in 3:
+				await _steps(3)
+				walk.append(_actor_tile(c))
+			rows.append({"label": "Marche avant" if forward else "Marche arrière", "images": walk, "captions": ["pas 1", "pas 2", "pas 3"]})
+			await _teardown(c)
+		# Attaques : images de préparation, images actives (zone de frappe en rouge) et récupération.
+		for heavy in [false, true]:
+			c = await _setup(fighter_index, true, 2.4)
+			_hide_visual(c["other"])
+			var overlay := _show_hitbox(c["actor"])
+			var attack: AttackData = c["actor"].heavy_attack if heavy else c["actor"].light_attack
+			var s := attack.startup_frames
+			var a := attack.active_frames
+			var frames := [maxi(1, int(s * 0.4)), int(s * 0.8), s, s + 1, s + a, s + a + int(attack.recovery_frames * 0.5)]
+			if heavy:
+				c["me"].press_heavy()
+			else:
+				c["me"].press_light()
+			var shots: Array = await _capture_state_frames(c, Fighter.State.ATTACK, frames, ["attaque"], overlay)
+			if _failed:
+				return
+			var names := ["préparation", "préparation", "départ du coup", "actif (1re image)", "actif (dernière)", "récupération"]
+			var captions := []
+			for k in frames.size():
+				captions.append("image %d : %s" % [frames[k], names[k]])
+			var title := "Attaque lourde" if heavy else "Attaque légère"
+			rows.append({"label": title + " (1/2)", "images": shots.slice(0, 3), "captions": captions.slice(0, 3)})
+			rows.append({"label": title + " (2/2) - zone de frappe en rouge quand elle est active", "images": shots.slice(3, 6), "captions": captions.slice(3, 6)})
+			await _teardown(c)
+		# Coup reçu.
+		c = await _setup(fighter_index, true, 0.9)
+		c["them"].press_light()
+		var hit: Array = await _capture_state_frames(c, Fighter.State.HITSTUN, [1, 5, 11], ["coup reçu"], null, "corps")
+		if _failed:
+			return
+		rows.append({"label": "Coup reçu", "images": hit, "captions": ["image 1 : impact", "image 5 : recul", "image 11 : retour en garde"]})
+		await _teardown(c)
+		# Esquive.
+		c = await _setup(fighter_index, true, 2.4)
+		_hide_visual(c["other"])
+		c["me"].press_dodge()
+		var dodge: Array = await _capture_state_frames(c, Fighter.State.DODGE, [2, 7, 16], ["esquive"], null, "corps")
+		if _failed:
+			return
+		rows.append({"label": "Esquive (invulnérable des images 2 à 14)", "images": dodge, "captions": ["image 2", "image 7", "image 16"]})
+		await _teardown(c)
+		# Poses tenues : garde, coup bloqué, K.O.
+		var held := []
+		c = await _setup(fighter_index, true, 2.4)
+		_hide_visual(c["other"])
+		c["me"].block = true
+		await _steps(12)
+		held.append(_actor_tile(c))
+		await _teardown(c)
+		c = await _setup(fighter_index, true, 0.9)
+		c["me"].block = true
+		await _steps(20)
+		c["them"].press_light()
+		var blocked: Array = await _capture_state_frames(c, Fighter.State.BLOCKSTUN, [3], ["coup bloqué"], null, "corps")
+		if _failed:
+			return
+		held.append_array(blocked)
+		await _teardown(c)
+		c = await _setup(fighter_index, true, 0.9)
+		c["actor"].health = 5.0
+		c["them"].press_light()
+		var ko: Array = await _capture_state_frames(c, Fighter.State.KO, [30], ["K.O."], null, "ko")
+		if _failed:
+			return
+		held.append_array(ko)
+		await _teardown(c)
+		rows.append({"label": "Poses tenues", "images": held, "captions": ["garde (blocage)", "coup bloqué", "K.O."]})
+		await _make_rows_planche("%s-animations.jpg" % FIGHTERS[fighter_index], "%s - animations" % FIGHTER_NAMES[fighter_index],
+			"Images de combat réelles (60 par seconde). Vignettes à l'échelle 1:1 d'un écran 1080p réduites aux deux tiers.", rows)
+	await _sequence_ai_fight()
+	await _sequence_strikes_slow()
+
+
+## Vrai combat : Tandé et Mabé pilotés chacun par l'IA du jeu (graines fixes : combat reproductible).
+func _sequence_ai_fight() -> void:
+	for folder in ["combat-ia", "combat-ia-video"]:
+		DirAccess.make_dir_recursive_absolute(_out.path_join("sequences").path_join(folder))
+	var c := await _setup(0, true, 3.0)
+	var ai_script: Script = load("res://scripts/ai/ai_controller.gd")
+	for pair in [[c["actor"], 11], [c["other"], 20261119]]:
+		var ai = ai_script.new()
+		ai.rng_seed = pair[1]
+		c["m"].add_child(ai)
+		ai.reset()
+		(pair[0] as Fighter).controller = ai
+	var interface := c["m"].get_node("Interface") as CanvasLayer
+	interface.visible = true
+	(interface.get_node("TouchControls") as CanvasItem).visible = false
+	var gif := 0
+	var video := 0
+	for t in 720:
+		await _step()
+		if t % 5 == 0:
+			var small := _grab()
+			small.resize(640, 360, Image.INTERPOLATE_LANCZOS)
+			small.save_png(_out.path_join("sequences/combat-ia").path_join("f_%04d.png" % gif))
+			gif += 1
+		if t % 2 == 0:
+			var frame := _grab()
+			frame.resize(960, 540, Image.INTERPOLATE_LANCZOS)
+			frame.save_png(_out.path_join("sequences/combat-ia-video").path_join("f_%04d.png" % video))
+			video += 1
+	await _teardown(c)
+	_manifest["sequences"].append({"dir": "combat-ia", "fps": 12, "frames": gif,
+		"title": "Vrai combat : Tandé contre Mabé, chacun piloté par l'IA du jeu (12 s, vitesse réelle)"})
+	_manifest["sequences"].append({"dir": "combat-ia-video", "fps": 30, "frames": video, "format": "mp4",
+		"title": "Le même combat en vidéo (30 images/s, plus fluide)"})
+
+
+## Coups au ralenti (x3), zones de frappe en rouge pendant les images actives.
+func _sequence_strikes_slow() -> void:
+	var folder := "coups-ralenti"
+	DirAccess.make_dir_recursive_absolute(_out.path_join("sequences").path_join(folder))
+	var n := 0
+	# [qui frappe (0 Tandé, 1 Mabé), lourd ?, l'autre garde ?]
+	for spec in [[0, false, false], [1, true, true], [0, true, false], [1, false, false]]:
+		var c := await _setup(spec[0], true, 0.9)
+		var overlays := [_show_hitbox(c["actor"]), _show_hitbox(c["other"])]
+		if spec[2]:
+			c["them"].block = true
+			await _steps(20)
+		if spec[1]:
+			c["me"].press_heavy()
+		else:
+			c["me"].press_light()
+		for t in 52:
+			await _step()
+			(overlays[0] as MeshInstance3D).visible = (c["actor"] as Fighter).hitbox.is_active()
+			(overlays[1] as MeshInstance3D).visible = (c["other"] as Fighter).hitbox.is_active()
+			var tile := _crop(_grab(), c["m"].camera, _midpoint(c), Vector2i(900, 600))
+			tile.resize(600, 400, Image.INTERPOLATE_LANCZOS)
+			tile.save_png(_out.path_join("sequences").path_join(folder).path_join("f_%04d.png" % n))
+			n += 1
+		await _teardown(c)
+	_manifest["sequences"].append({"dir": folder, "fps": 20, "frames": n,
+		"title": "Coups au ralenti (x3) : légère de Tandé, lourde de Mabé bloquée, lourde de Tandé, légère de Mabé ; zone de frappe en rouge quand elle est active"})

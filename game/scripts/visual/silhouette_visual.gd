@@ -5,8 +5,12 @@ extends FighterVisual
 ## Pantin vu de profil : 14 os effilés (rayon différent à chaque bout) qui se fondent en une
 ## silhouette continue, couleur de terre très sombre, liseré discret de contre-jour, pièces de
 ## costume décoratives et Marques des Pactes ocre. Les données viennent de SilhouetteProfiles.
-## Étape 2 : deux poses fixes, « attente » et « garde » (pendant un blocage) ; les animations
-## viendront à l'étape 3.
+## Étape 3 : animations pilotées par l'état du combattant et par les images de combat :
+## attente (respiration), marche avant et arrière (pieds posés), attaques légère et lourde (calées
+## sur préparation, images actives et récupération), coup reçu, esquive ; poses tenues pour la garde,
+## le coup bloqué et le K.O. Les poses-clés viennent de SilhouetteProfiles ; entre deux poses, le
+## pantin interpole les angles des os, puis place les jambes par cinématique inverse (pieds posés).
+## Tout dépend uniquement des images de logique : même combat, même animation (déterminisme).
 ##
 ## Le visuel ne décide de rien : il lit l'état du combattant. Les zones de touche ne changent pas.
 ## Miroir 2D : quand le combattant se retourne, le pantin est en plus symétrisé en profondeur,
@@ -42,6 +46,14 @@ const RADIAL_SEGMENTS := 14
 const CAP_RINGS := 4
 const FLASH_AMOUNT := 0.55
 const MARK_RADIUS := 0.0075
+## Durée des fondus (images) en entrant dans chaque animation.
+const BLEND_FRAMES := {&"locomotion": 5, &"garde": 4, &"coup_bloque": 3, &"legere": 3, &"lourde": 3, &"recul": 4, &"esquive": 3, &"ko": 26}
+## Calage au sol : « sol » (pieds posés), « libre » (petit saut de l'esquive), « allonge » (corps au sol).
+const GROUND_MODE := {&"esquive": &"libre", &"ko": &"allonge"}
+const BREATH_PERIOD := 96
+## Part du chemin vers le coup atteinte à la dernière image de préparation.
+const STRIKE_LEAD := 0.8
+const LEGS := {&"n": [8, 9, 10], &"f": [11, 12, 13]}
 
 @export var character: StringName = &"tande"
 
@@ -53,7 +65,18 @@ var _fk := {}
 var _joints := {}
 var _joint_layer := {}
 var _ground: float = 0.0
-var _pose: StringName = &""
+var _keys := {}
+var _walk := {}
+var _anim: StringName = &""
+var _shown := {}
+var _blend_from := {}
+var _blend_total: int = 0
+var _blend_left: int = 0
+var _tick: int = 0
+var _walk_distance: float = 0.0
+var _walk_weight: float = 0.0
+var _last_x: float = NAN
+var _planted := {&"n": false, &"f": false}
 var _materials: Array[ShaderMaterial] = []
 var _flash_frames: int = 0
 var _flash_color: Color = Color(1.0, 0.3, 0.25)
@@ -62,15 +85,28 @@ var _shown_flash: float = -1.0
 
 func _ready() -> void:
 	_build()
-	_apply_pose(&"attente")
+	if not _profile.is_empty():
+		_display(_solved(_keys[&"attente"]), &"sol")
 
 
 func update_visual(fighter: Fighter) -> void:
 	if _profile.is_empty():
 		return
-	var wanted: StringName = &"garde" if fighter.is_blocking() else &"attente"
-	if wanted != _pose:
-		_apply_pose(wanted)
+	_tick += 1
+	_track_walk(fighter)
+	var anim := _animation_for(fighter)
+	if anim != _anim:
+		_blend_from = _shown.duplicate(true)
+		_blend_total = BLEND_FRAMES.get(anim, 3)
+		_blend_left = _blend_total if not _blend_from.is_empty() else 0
+		_anim = anim
+	var target := _sample(anim, fighter)
+	if _blend_left > 0:
+		_blend_left -= 1
+		var w := 1.0 - float(_blend_left) / _blend_total
+		w = w * w if anim == &"ko" else smoothstep(0.0, 1.0, w)
+		target = _mix(_blend_from, target, w)
+	_display(target, GROUND_MODE.get(anim, &"sol"))
 	_rig.scale.z = 1.0 if fighter.facing >= 0.0 else -1.0
 	var amount := 0.0
 	if _flash_frames > 0:
@@ -95,8 +131,29 @@ func reset_visual() -> void:
 
 # --- Mesures (tests et banc de capture) ---------------------------------------------------
 
+## Pose affichée : « attente » (attente et marche), « garde », sinon le nom de l'animation.
 func current_pose() -> StringName:
-	return _pose
+	return &"attente" if _anim == &"locomotion" or _anim == &"" else _anim
+
+
+func current_animation() -> StringName:
+	return _anim
+
+
+## Articulation dans le repère du pantin (avant symétrie), hauteur au-dessus du sol.
+func joint_local(joint: StringName) -> Vector2:
+	var p: Vector2 = _joints[joint]
+	return p + Vector2(0.0, _ground)
+
+
+## Angles des 14 os affichés (radians), dans l'ordre de BONES.
+func bone_angles() -> PackedFloat64Array:
+	return _shown["angles"] if not _shown.is_empty() else PackedFloat64Array()
+
+
+## Pendant la marche établie : vrai si le pied (&"n" avant, &"f" arrière) est en appui au sol.
+func foot_planted(side: StringName) -> bool:
+	return bool(_planted[side])
 
 
 ## Position globale d'une articulation, à la profondeur de sa couche.
@@ -137,7 +194,7 @@ func _build() -> void:
 	add_child(_rig)
 	var body := _material(_profile["body"], true)
 	var far := _material(_profile["far"], true)
-	var reference: PackedVector2Array = _profile["poses"][&"attente"]
+	var reference: PackedVector2Array = _profile["reference"]
 	var radii: Dictionary = _profile["radii"]
 	for bone_def in BONES:
 		var bone: StringName = bone_def[0]
@@ -199,6 +256,10 @@ func _build() -> void:
 			# Demi-axes donnés dans la pose de référence : on annule la rotation du nœud de l'os.
 			var turn := Basis(Vector3.BACK, -(float(_info[owner_bone]["angle"]) - PI / 2.0))
 			_add_mesh(_bone_nodes[owner_bone], sphere, Transform3D(turn * Basis.from_scale(axes), Vector3(center.x, center.y, z)), material)
+	for name in _profile["keys"]:
+		var key: Dictionary = _profile["keys"][name]
+		_keys[name] = _key_from_points(key["points"], key["ik"])
+	_walk = _profile["walk"]
 	var mark_material := _material(_profile["mark"], false)
 	for mark in _profile["marks"]:
 		var a := _to_bone_local(mark["bone"], mark["a"])
@@ -212,13 +273,190 @@ func _build() -> void:
 		_add_mesh(_bone_nodes[mark["bone"]], _tapered_capsule(MARK_RADIUS, MARK_RADIUS, a.distance_to(b)), t, mark_material)
 
 
-func _apply_pose(pose_name: StringName) -> void:
-	var points: PackedVector2Array = _profile["poses"][pose_name]
+# --- Animation ----------------------------------------------------------------------------
+
+func _animation_for(fighter: Fighter) -> StringName:
+	match fighter.state:
+		Fighter.State.BLOCK:
+			return &"garde"
+		Fighter.State.BLOCKSTUN:
+			return &"coup_bloque"
+		Fighter.State.ATTACK:
+			return &"lourde" if fighter.current_attack != null and fighter.current_attack == fighter.heavy_attack else &"legere"
+		Fighter.State.HITSTUN:
+			return &"recul"
+		Fighter.State.DODGE:
+			return &"esquive"
+		Fighter.State.KO:
+			return &"ko"
+	return &"locomotion"
+
+
+func _sample(anim: StringName, fighter: Fighter) -> Dictionary:
+	var frame := fighter.get_state_frame()
+	var rest: Dictionary = _keys[&"attente"]
+	match anim:
+		&"garde":
+			return _solved(_keys[&"garde"])
+		&"coup_bloque":
+			if frame <= 3:
+				return _solved(_mix(_keys[&"garde"], _keys[&"garde_recul"], _ease_out(frame / 3.0)))
+			if frame <= 9:
+				return _solved(_mix(_keys[&"garde_recul"], _keys[&"garde"], smoothstep(0.0, 1.0, (frame - 3) / 6.0)))
+			return _solved(_keys[&"garde"])
+		&"legere":
+			return _attack(fighter, frame, &"legere_armee", &"legere_frappe")
+		&"lourde":
+			return _attack(fighter, frame, &"lourde_armee", &"lourde_frappe")
+		&"recul":
+			if frame <= 3:
+				return _solved(_keys[&"recul"])
+			if frame <= 12:
+				return _solved(_mix(_keys[&"recul"], rest, smoothstep(0.0, 1.0, (frame - 3) / 9.0)))
+			return _solved(rest)
+		&"esquive":
+			if frame <= 4:
+				return _solved(_mix(rest, _keys[&"esquive"], _ease_out(frame / 4.0)))
+			if frame <= 13:
+				return _solved(_keys[&"esquive"])
+			return _solved(_mix(_keys[&"esquive"], rest, smoothstep(0.0, 1.0, minf(1.0, (frame - 13) / 7.0))))
+		&"ko":
+			return _solved(_keys[&"ko"])
+	return _locomotion()
+
+
+## Attaque calée sur les images de combat : préparation (attente puis armé, puis départ du coup),
+## coup pleinement porté pendant toutes les images actives, retour à l'attente pendant la récupération.
+func _attack(fighter: Fighter, frame: int, armed_key: StringName, strike_key: StringName) -> Dictionary:
+	var rest: Dictionary = _keys[&"attente"]
+	var attack := fighter.current_attack
+	if attack == null:
+		return _solved(rest)
+	var startup := attack.startup_frames
+	var active := attack.active_frames
+	var armed: Dictionary = _keys[armed_key]
+	var strike: Dictionary = _keys[strike_key]
+	if frame <= startup:
+		var t := float(frame) / startup
+		if t <= 0.5:
+			return _solved(_mix(rest, armed, smoothstep(0.0, 1.0, t / 0.5)))
+		var u := (t - 0.5) / 0.5
+		return _solved(_mix(armed, strike, STRIKE_LEAD * u * u))
+	if frame <= startup + active:
+		return _solved(strike)
+	return _solved(_mix(strike, rest, smoothstep(0.0, 1.0, float(frame - startup - active) / attack.recovery_frames)))
+
+
+## Attente et marche : respiration, puis pas chassés pieds posés quand le combattant se déplace.
+## La phase des pas suit la distance parcourue : un pied en appui reste exactement fixe au sol.
+func _locomotion() -> Dictionary:
+	var breath := 0.5 - 0.5 * cos(TAU * float(_tick % BREATH_PERIOD) / BREATH_PERIOD)
+	var s := _mix(_keys[&"attente"], _keys[&"inspire"], breath)
+	_planted[&"n"] = false
+	_planted[&"f"] = false
+	if _walk_weight > 0.0:
+		var cycle: float = _walk["cycle"]
+		var phase := _walk_distance / cycle
+		for side: StringName in [&"n", &"f"]:
+			var o := _foot_offset(phase + (0.0 if side == &"n" else 0.5))
+			var ankle: Vector2 = s["ankle_" + side]
+			s["ankle_" + side] = ankle + Vector2(o.x, o.y) * _walk_weight
+			if o.z >= 0.0:
+				s["foot_" + side] = float(s["foot_" + side]) - deg_to_rad(15.0) * sin(PI * o.z) * _walk_weight
+			_planted[side] = o.z < 0.0 and _walk_weight >= 1.0
+		var hips: Vector2 = s["hips"]
+		s["hips"] = hips - Vector2(0.0, float(_walk["bob"]) * _walk_weight * (0.5 + 0.5 * cos(2.0 * TAU * phase)))
+	return _solved(s)
+
+
+## Décalage d'un pied pour une phase de marche : x (avant), y (levée), z (progression du vol, -1 en appui).
+func _foot_offset(phase: float) -> Vector3:
+	var cycle: float = _walk["cycle"]
+	var q := fposmod(phase, 1.0)
+	if q < 0.5:
+		return Vector3(cycle * 0.25 - q * cycle, 0.0, -1.0)
+	var s := (q - 0.5) * 2.0
+	var e := s * s * (3.0 - 2.0 * s)
+	return Vector3(-cycle * 0.25 + e * cycle * 0.5, float(_walk["lift"]) * sin(PI * s), s)
+
+
+func _track_walk(fighter: Fighter) -> void:
+	var x := fighter.global_position.x
+	if not is_nan(_last_x):
+		_walk_distance += (x - _last_x) * fighter.facing
+	_last_x = x
+	var moving := fighter.state == Fighter.State.IDLE or fighter.state == Fighter.State.WALK
+	var target := clampf(absf(fighter.velocity.x) / 1.2, 0.0, 1.0) if moving else 0.0
+	_walk_weight = move_toward(_walk_weight, target, 0.2)
+
+
+func _key_from_points(points: PackedVector2Array, ik: bool) -> Dictionary:
+	var angles := PackedFloat64Array()
 	for bone_def in BONES:
+		var info: Dictionary = _info[bone_def[0]]
+		angles.append((points[info["to"]] - points[info["from"]]).angle())
+	return {
+		"hips": points[0], "angles": angles, "ik": ik,
+		"ankle_n": points[13], "ankle_f": points[17],
+		"foot_n": (points[14] - points[13]).angle(), "foot_f": (points[18] - points[17]).angle(),
+	}
+
+
+func _mix(a: Dictionary, b: Dictionary, t: float) -> Dictionary:
+	var angles := PackedFloat64Array()
+	var aa: PackedFloat64Array = a["angles"]
+	var ba: PackedFloat64Array = b["angles"]
+	for i in aa.size():
+		angles.append(lerp_angle(aa[i], ba[i], t))
+	var hips_a: Vector2 = a["hips"]
+	var hips_b: Vector2 = b["hips"]
+	var out := {"hips": hips_a.lerp(hips_b, t), "angles": angles, "ik": bool(a.get("ik", false)) and bool(b.get("ik", false))}
+	if a.has("ankle_n") and b.has("ankle_n"):
+		for side in ["n", "f"]:
+			var ankle_a: Vector2 = a["ankle_" + side]
+			var ankle_b: Vector2 = b["ankle_" + side]
+			out["ankle_" + side] = ankle_a.lerp(ankle_b, t)
+			out["foot_" + side] = lerp_angle(float(a["foot_" + side]), float(b["foot_" + side]), t)
+	return out
+
+
+## Pose finale : jambes placées par cinématique inverse vers les chevilles visées (genou vers l'avant).
+func _solved(sample: Dictionary) -> Dictionary:
+	var s := sample.duplicate(true)
+	if not bool(s.get("ik", false)):
+		return s
+	var angles: PackedFloat64Array = s["angles"]
+	var hips: Vector2 = s["hips"]
+	for side: StringName in LEGS:
+		var ids: Array = LEGS[side]
+		var thigh: Dictionary = _info[BONES[ids[0]][0]]
+		var shin: Dictionary = _info[BONES[ids[1]][0]]
+		var thigh_anchor: Vector2 = thigh["anchor"]
+		var hip := hips + thigh_anchor.rotated(angles[0])
+		var target: Vector2 = s["ankle_" + side]
+		var l1: float = thigh["length"]
+		var l2: float = shin["length"]
+		var d := clampf(hip.distance_to(target), absf(l1 - l2) + 0.0001, l1 + l2 - 0.0001)
+		var bend := acos(clampf((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0))
+		var thigh_angle := (target - hip).angle() + bend
+		var knee := hip + Vector2(l1, 0.0).rotated(thigh_angle)
+		angles[ids[0]] = thigh_angle
+		angles[ids[1]] = (target - knee).angle()
+		angles[ids[2]] = float(s["foot_" + side])
+	s["angles"] = angles
+	s["ik"] = false
+	return s
+
+
+## Applique une pose finale : chaîne des os, calage au sol, transformations des nœuds.
+func _display(sample: Dictionary, ground: StringName) -> void:
+	var angles: PackedFloat64Array = sample["angles"]
+	for i in BONES.size():
+		var bone_def: Array = BONES[i]
 		var bone: StringName = bone_def[0]
 		var info: Dictionary = _info[bone]
-		var angle := (points[info["to"]] - points[info["from"]]).angle()
-		var start: Vector2 = points[info["from"]]
+		var angle := angles[i]
+		var start: Vector2 = sample["hips"]
 		if bone_def[3] != &"":
 			var parent: Dictionary = _fk[bone_def[3]]
 			var parent_start: Vector2 = parent["start"]
@@ -228,21 +466,37 @@ func _apply_pose(pose_name: StringName) -> void:
 		_fk[bone] = {"start": start, "end": end, "angle": angle}
 		_joints[bone_def[1]] = start
 		_joints[bone_def[2]] = end
-	_ground = -_lowest()
+	match ground:
+		&"libre":
+			_ground = 0.0
+		&"allonge":
+			_ground = maxf(0.0, -_lowest(true))
+		_:
+			_ground = -_lowest(false)
 	for bone_def in BONES:
 		var fk: Dictionary = _fk[bone_def[0]]
 		var start: Vector2 = fk["start"]
 		var node: Node3D = _bone_nodes[bone_def[0]]
 		node.position = Vector3(start.x, start.y + _ground, LAYER_Z[bone_def[4]])
 		node.rotation = Vector3(0.0, 0.0, float(fk["angle"]) - PI / 2.0)
-	_pose = pose_name
+	_shown = sample
 
 
-## Point le plus bas des jambes et des pieds, avant la correction de hauteur.
-func _lowest() -> float:
+func _ease_out(t: float) -> float:
+	var u := clampf(t, 0.0, 1.0)
+	return 1.0 - (1.0 - u) * (1.0 - u)
+
+
+## Point le plus bas des jambes et des pieds (ou du corps entier), avant la correction de hauteur.
+func _lowest(whole_body: bool = false) -> float:
 	var low := INF
 	var radii: Dictionary = _profile["radii"]
-	for bone in FEET:
+	var bones: Array = FEET
+	if whole_body:
+		bones = []
+		for bone_def in BONES:
+			bones.append(bone_def[0])
+	for bone in bones:
 		var fk: Dictionary = _fk[bone]
 		var r: Vector2 = radii[bone]
 		var start: Vector2 = fk["start"]

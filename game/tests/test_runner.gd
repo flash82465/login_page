@@ -47,6 +47,10 @@ func _ready() -> void:
 	await _test_silhouette_proportions_and_zones()
 	await _test_silhouette_mirror()
 	await _test_combat_identical_across_generations()
+	# Mission 005, étape 3 — animations des silhouettes
+	await _test_silhouette_strikes_in_hitbox()
+	await _test_silhouette_animation_fluid_and_deterministic()
+	await _test_silhouette_walk_feet_planted()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -965,3 +969,198 @@ func _record_fight(generation) -> PackedStringArray:
 			a.health, b.health, a.get_state_frame(), b.get_state_frame()])
 	await _close(m)
 	return trace
+
+
+# --- Mission 005, étape 3 : animations des silhouettes -------------------------------------
+
+func _inside_hitbox(f: Fighter, p: Vector3) -> bool:
+	var shape := f.hitbox.get_node("CollisionShape3D") as CollisionShape3D
+	var half := (shape.shape as BoxShape3D).size * 0.5
+	var d := p - shape.global_position
+	return absf(d.x) <= half.x and absf(d.y) <= half.y and absf(d.z) <= half.z
+
+
+func _test_silhouette_strikes_in_hitbox() -> void:
+	_begin("Animations : le poing qui frappe est dans la zone de frappe à chaque image active et le coup part à la première (Tandé, Mabé, légère, lourde, deux orientations)")
+	for side: float in [1.0, -1.0]:
+		var m = await _new_match_with(SILHOUETTE_GENERATION)
+		var a: Fighter = m.fighter_a
+		var b: Fighter = m.fighter_b
+		_place(a, -1.2 * side)
+		_place(b, 1.2 * side)
+		await _frames(8)
+		for f: Fighter in [a, b]:
+			var v := f.get_node("Visual") as SilhouetteVisual
+			for heavy: bool in [false, true]:
+				var attack: AttackData = f.heavy_attack if heavy else f.light_attack
+				var wrist: StringName = &"wrist_f" if heavy else &"wrist_n"
+				if heavy:
+					_ctrl(f).press_heavy()
+				else:
+					_ctrl(f).press_light()
+				var active := 0
+				var inside := 0
+				var before := -INF
+				var contact := -INF
+				for i in 90:
+					await _frames(1)
+					if i > 2 and f.state != Fighter.State.ATTACK:
+						break
+					var fist := v.joint_global(wrist)
+					var reach := (fist.x - f.global_position.x) * f.facing
+					if f.get_state_frame() == attack.startup_frames:
+						before = reach
+					if f.hitbox.is_active():
+						active += 1
+						if f.get_state_frame() == attack.startup_frames + 1:
+							contact = reach
+						if _inside_hitbox(f, fist):
+							inside += 1
+				var label := "%s, %s, regard %s" % [f.display_name, "lourde" if heavy else "légère", "à droite" if f.facing > 0.0 else "à gauche"]
+				_check(active == attack.active_frames, "%s : %d images actives au lieu de %d" % [label, active, attack.active_frames])
+				_check(inside == active, "%s : poing hors de la zone de frappe sur %d image(s) active(s)" % [label, active - inside])
+				_check(contact > before + 0.03, "%s : le coup n'arrive pas à la première image active (%.2f m puis %.2f m)" % [label, before, contact])
+				if side > 0.0:
+					print("    COUP %s : %d/%d images actives avec le poing dans la zone ; allonge %.2f m à la fin de la préparation, %.2f m à l'impact" % [label, inside, active, before, contact])
+				await _frames(12)
+		await _close(m)
+	_end()
+
+
+func _test_silhouette_animation_fluid_and_deterministic() -> void:
+	_begin("Animations : déterministes (deux combats identiques donnent les mêmes poses) et fluides (aucun saut de plus de 25 cm ni de 40° d'une image à l'autre)")
+	var first: Dictionary = await _animation_trace()
+	var second: Dictionary = await _animation_trace()
+	_check(first["trace"] == second["trace"], "les poses diffèrent entre deux combats identiques")
+	_check(float(first["step"]) <= 0.25, "saut d'articulation de %.1f cm en une image (%s)" % [float(first["step"]) * 100.0, first["step_at"]])
+	_check(float(first["turn"]) <= deg_to_rad(40.0), "rotation d'os de %.0f° en une image (%s)" % [rad_to_deg(float(first["turn"])), first["turn_at"]])
+	var seen: Dictionary = first["seen"]
+	var first_trace: PackedStringArray = first["trace"]
+	for anim: StringName in [&"locomotion", &"garde", &"coup_bloque", &"legere", &"lourde", &"recul", &"esquive", &"ko"]:
+		_check(seen.has(anim), "animation %s jamais jouée par la séquence" % anim)
+	print("    ANIMATIONS : %d poses comparées entre deux combats, identiques : %s ; plus grand déplacement d'articulation en une image %.1f cm (%s) ; plus grande rotation %.0f° (%s)" % [
+		first_trace.size(), "oui" if first["trace"] == second["trace"] else "non",
+		float(first["step"]) * 100.0, first["step_at"], rad_to_deg(float(first["turn"])), first["turn_at"]])
+	_end()
+
+
+func _animation_trace() -> Dictionary:
+	var m = await _new_match_with(SILHOUETTE_GENERATION)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	var ca = _ctrl(a)
+	var cb = _ctrl(b)
+	var trace := PackedStringArray()
+	var seen := {}
+	var last := {}
+	var step := 0.0
+	var turn := 0.0
+	var step_at := ""
+	var turn_at := ""
+	_place(a, -1.2)
+	_place(b, 1.2)
+	for frame in 560:
+		match frame:
+			0:
+				ca.move_axis = 1.0  # marche avant
+			25:
+				ca.move_axis = -1.0  # marche arrière
+			45:
+				ca.move_axis = 0.0
+			70, 130, 230, 270, 330, 400:
+				_place(a, -0.45)
+				_place(b, 0.45)
+			75:
+				ca.press_light()  # coup reçu par Mabé
+			132:
+				ca.block = true  # garde...
+			160:
+				cb.press_heavy()  # ... coup bloqué
+			220:
+				ca.block = false
+			235:
+				ca.press_dodge()  # esquive
+			275:
+				cb.press_light()
+			277:
+				ca.block = true  # parade : Mabé déséquilibré
+			320:
+				ca.block = false
+			335:
+				cb.press_heavy()  # coup lourd reçu par Tandé
+			402:
+				b.health = 1.0
+			404:
+				ca.press_heavy()  # K.O.
+		await _frames(1)
+		for f: Fighter in [a, b]:
+			var v := f.get_node("Visual") as SilhouetteVisual
+			seen[v.current_animation()] = true
+			var joints := PackedVector2Array()
+			var row := PackedStringArray()
+			for joint in SilhouetteVisual.JOINTS:
+				var p := v.joint_local(joint)
+				joints.append(p)
+				row.append("%.5f,%.5f" % [p.x, p.y])
+			var angles := v.bone_angles()
+			trace.append("%d %s %s" % [frame, f.name, " ".join(row)])
+			if last.has(f.name):
+				var prev: Dictionary = last[f.name]
+				var prev_joints: PackedVector2Array = prev["joints"]
+				var prev_angles: PackedFloat64Array = prev["angles"]
+				for i in joints.size():
+					var d := joints[i].distance_to(prev_joints[i])
+					if d > step:
+						step = d
+						step_at = "%s, %s, %s, image %d" % [f.display_name, v.current_animation(), SilhouetteVisual.JOINTS[i], frame]
+				for i in angles.size():
+					var t := absf(wrapf(angles[i] - prev_angles[i], -PI, PI))
+					if t > turn:
+						turn = t
+						turn_at = "%s, %s, os %d, image %d" % [f.display_name, v.current_animation(), i, frame]
+			last[f.name] = {"joints": joints, "angles": angles}
+	await _close(m)
+	return {"trace": trace, "seen": seen, "step": step, "turn": turn, "step_at": step_at, "turn_at": turn_at}
+
+
+func _test_silhouette_walk_feet_planted() -> void:
+	_begin("Marche avant et arrière : un pied en appui ne glisse pas de plus de 2 cm (Tandé et Mabé)")
+	var m = await _new_match_with(SILHOUETTE_GENERATION)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -3.0)
+	_place(b, 3.0)
+	await _frames(4)
+	var worst := 0.0
+	var stances := 0
+	for f: Fighter in [a, b]:
+		var v := f.get_node("Visual") as SilhouetteVisual
+		var c = _ctrl(f)
+		for direction: float in [1.0, -1.0]:
+			c.move_axis = direction * f.facing
+			var tracks := {&"n": PackedFloat64Array(), &"f": PackedFloat64Array()}
+			for i in 45:
+				await _frames(1)
+				for side: StringName in [&"n", &"f"]:
+					var x := v.joint_global(&"ankle_n" if side == &"n" else &"ankle_f").x
+					var track: PackedFloat64Array = tracks[side]
+					if v.foot_planted(side):
+						track.append(x)
+					else:
+						if track.size() >= 3:
+							var lo := INF
+							var hi := -INF
+							for value in track:
+								lo = minf(lo, value)
+								hi = maxf(hi, value)
+							worst = maxf(worst, hi - lo)
+							stances += 1
+						track = PackedFloat64Array()
+					tracks[side] = track
+			c.move_axis = 0.0
+			await _frames(20)
+	_check(stances >= 8, "trop peu d'appuis observés (%d)" % stances)
+	_check(worst <= 0.02, "un pied en appui glisse de %.1f cm" % (worst * 100.0))
+	print("    MARCHE : %d appuis observés, glissement maximal d'un pied posé %.2f cm" % [stances, worst * 100.0])
+	await _close(m)
+	_end()

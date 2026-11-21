@@ -54,7 +54,7 @@ Les journaux (import, test de fumée, tests, export, contrôle de l'APK) sont pu
 | SDK Android | SDK préinstallé sur le runner | SDK absent |
 | Import du projet | construit le cache Godot | erreur de script ou de chargement |
 | Test de fumée | lance la scène principale 120 frames en mode headless | « SMOKE TEST OK » absent |
-| Tests de gameplay | 26 scénarios (tactile et multitouch, attaques, coups simultanés, garde, parade, esquive, K.O., double K.O., « Rejouer », IA et mesure d'équilibrage, équivalence du visuel capsule avec V0.4.1, proportions et miroir des silhouettes, combat identique quelle que soit la génération visuelle) | « TESTS OK » absent |
+| Tests de gameplay | 26 scénarios (tactile et multitouch, attaques, coups simultanés, garde, parade, esquive, K.O., double K.O., « Rejouer », IA et mesure d'équilibrage, équivalence du visuel capsule avec V0.4.1, proportions et miroir des silhouettes, combat identique quelle que soit la génération visuelle, poing dans la zone de frappe à chaque image active, animations déterministes et fluides, pieds posés pendant la marche) | « TESTS OK » absent |
 | Règle des versions | identifiant, nom, clé stable, version non modifiée (voir plus haut) | une condition manque |
 | Export | `--export-debug "Android"` → `build/okelun-<version>-debug.apk` | APK absent ou vide |
 | Contrôle de l'APK | identifiant, nom, version et signature lus dans l'APK | APK non conforme |
