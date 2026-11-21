@@ -64,6 +64,11 @@ func _ready() -> void:
 		if not _failed:
 			_finish()
 		return
+	if _mode == "integration":
+		await _capture_integration()
+		if not _failed:
+			_finish()
+		return
 	for fighter_index in 2:
 		for facing_right in [true, false]:
 			await _capture_states(fighter_index, facing_right)
@@ -891,3 +896,89 @@ func _sequence_strikes_slow() -> void:
 		await _teardown(c)
 	_manifest["sequences"].append({"dir": folder, "fps": 20, "frames": n,
 		"title": "Coups au ralenti (x3) : légère de Tandé, lourde de Mabé bloquée, lourde de Tandé, légère de Mabé ; zone de frappe en rouge quand elle est active"})
+
+
+# --- Jeu intégré V0.5.0 (mission 006) -----------------------------------------------------
+# Tout est chargé par chemin : ce code ne doit pas empêcher le banc de tourner sur une version
+# de référence qui n'a pas encore ces scènes.
+
+func _drive_with_ai(m, ai_script: Script, seed_value: int) -> void:
+	var ai = ai_script.new()
+	ai.rng_seed = seed_value
+	m.add_child(ai)
+	ai.reset()
+	m.fighter_a.controller = ai
+
+
+func _save_screen(file: String, title: String) -> void:
+	var img := _grab()
+	img.save_jpg(_out.path_join("planches").path_join(file), 0.9)
+	_manifest["planches"].append({"file": file, "title": title})
+
+
+func _toggle_visual(game: Node) -> void:
+	var toggle = game.match_scene.get_node("Interface/VisualToggle")
+	toggle.button().pressed.emit()
+	await _steps(4)
+
+
+func _capture_integration() -> void:
+	var settings: Script = load("res://scripts/visual/visual_settings.gd")
+	var game_scene: PackedScene = load("res://scenes/main/game.tscn")
+	var ai_script: Script = load("res://scripts/ai/ai_controller.gd")
+	settings.clear()
+	var game = game_scene.instantiate()
+	add_child(game)
+	await _steps(30)
+	_save_screen("jeu-1-demarrage.jpg", "Le jeu au démarrage : pantins animés par défaut, bouton Visuel sous le chronomètre")
+	# Pour les captures, Tandé est piloté par une IA de démonstration (en jeu, c'est vous).
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	await _steps(240)
+	_save_screen("jeu-2-combat-pantins.jpg", "Combat en cours avec les pantins animés")
+	await _toggle_visual(game)
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	await _steps(240)
+	_save_screen("jeu-3-combat-capsules.jpg", "Après un toucher sur le bouton Visuel : combat neuf avec les capsules historiques")
+	await _toggle_visual(game)
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	game.match_scene.fighter_a.health = 8.0
+	for i in 1500:
+		await _step()
+		if game.match_scene.match_over:
+			break
+	await _steps(45)
+	_save_screen("jeu-4-resultat-pantins.jpg", "Fin de combat avec les pantins : K.O., écran du vainqueur et bouton Rejouer")
+	game.queue_free()
+	await _steps(2)
+	# Séquence : 10 s de jeu intégré, bascule vers les capsules à mi-parcours.
+	settings.clear()
+	game = game_scene.instantiate()
+	add_child(game)
+	await _steps(10)
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	for folder in ["jeu-integre", "jeu-integre-video"]:
+		DirAccess.make_dir_recursive_absolute(_out.path_join("sequences").path_join(folder))
+	var gif := 0
+	var video := 0
+	for t in 600:
+		if t == 300:
+			await _toggle_visual(game)
+			_drive_with_ai(game.match_scene, ai_script, 11)
+		await _step()
+		if t % 5 == 0:
+			var small := _grab()
+			small.resize(640, 360, Image.INTERPOLATE_LANCZOS)
+			small.save_png(_out.path_join("sequences/jeu-integre").path_join("f_%04d.png" % gif))
+			gif += 1
+		if t % 2 == 0:
+			var frame := _grab()
+			frame.resize(960, 540, Image.INTERPOLATE_LANCZOS)
+			frame.save_png(_out.path_join("sequences/jeu-integre-video").path_join("f_%04d.png" % video))
+			video += 1
+	game.queue_free()
+	settings.clear()
+	await _steps(2)
+	_manifest["sequences"].append({"dir": "jeu-integre", "fps": 12, "frames": gif,
+		"title": "Jeu intégré : 5 s avec les pantins, toucher sur le bouton Visuel, 5 s avec les capsules"})
+	_manifest["sequences"].append({"dir": "jeu-integre-video", "fps": 30, "frames": video, "format": "mp4",
+		"title": "La même séquence en vidéo (30 images/s)"})

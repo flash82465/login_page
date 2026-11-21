@@ -11,12 +11,18 @@ const LIGHT_DAMAGE := 7.5
 const HEAVY_DAMAGE := 17.5
 
 var _name: String = ""
+## Génération visuelle appliquée par _new_match : aucune (capsules, passe par défaut) ou les pantins
+## animés (passe lancée avec « -- --generation=silhouette », mission 006).
+var _generation = null
 var _ok: bool = true
 var _passed: int = 0
 var _failed: int = 0
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--generation=silhouette"):
+		_generation = load("res://assets/visual/generation_silhouette_v05.tres")
+		print("TEST INFO passe « pantins animés » : tous les scénarios de jeu sont rejoués avec la génération silhouette")
 	var size := get_viewport().get_visible_rect().size
 	print("TEST INFO viewport %s, fenêtre %s" % [size, DisplayServer.window_get_size()])
 	await _test_touch_hold_moves_and_position_persists()
@@ -43,7 +49,8 @@ func _ready() -> void:
 	await _test_slide_between_arrows_switches_direction()
 	await _test_ai_balance()
 	# Mission 005 — générations visuelles
-	await _test_capsule_visual_identical_to_v041()
+	if _generation == null:  # test propre aux capsules
+		await _test_capsule_visual_identical_to_v041()
 	await _test_silhouette_proportions_and_zones()
 	await _test_silhouette_mirror()
 	await _test_combat_identical_across_generations()
@@ -51,6 +58,8 @@ func _ready() -> void:
 	await _test_silhouette_strikes_in_hitbox()
 	await _test_silhouette_animation_fluid_and_deterministic()
 	await _test_silhouette_walk_feet_planted()
+	# Mission 006 — intégration jouable
+	await _test_game_starts_with_pantins_and_toggles()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -89,6 +98,8 @@ func _frames(count: int) -> void:
 
 func _new_match(scripted_a: bool, scripted_b: bool):
 	var m = MAIN_SCENE.instantiate()
+	if _generation != null:
+		_generation.apply_to(m)
 	add_child(m)
 	await _frames(1)
 	if scripted_a:
@@ -1163,4 +1174,52 @@ func _test_silhouette_walk_feet_planted() -> void:
 	_check(worst <= 0.02, "un pied en appui glisse de %.1f cm" % (worst * 100.0))
 	print("    MARCHE : %d appuis observés, glissement maximal d'un pied posé %.2f cm" % [stances, worst * 100.0])
 	await _close(m)
+	_end()
+
+
+# --- Mission 006 : intégration jouable ----------------------------------------------------
+
+const GAME_SCENE := preload("res://scenes/main/game.tscn")
+
+
+func _test_game_starts_with_pantins_and_toggles() -> void:
+	_begin("Jeu : démarre en pantins animés ; le bouton Visuel (2e doigt pendant qu'une flèche est tenue) passe aux capsules, le choix est conservé, puis retour aux pantins")
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var m = game.match_scene
+	_check(m.fighter_a.get_node("Visual") is SilhouetteVisual and m.fighter_b.get_node("Visual") is SilhouetteVisual, "le jeu ne démarre pas en pantins animés")
+	var toggle := m.get_node_or_null("Interface/VisualToggle") as VisualToggle
+	_check(toggle != null, "bouton Visuel absent")
+	if toggle != null:
+		var arrow: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
+		_touch(0, _button_center(arrow), true)
+		await _frames(2)
+		var center := _control_center(toggle.button())
+		_touch(1, center, true)
+		await _frames(1)
+		_touch(1, center, false)
+		await _frames(3)
+		_touch(0, _button_center(arrow), false)
+		await _frames(2)
+	m = game.match_scene
+	_check(m.fighter_a.get_node("Visual") is CapsuleVisual and m.fighter_b.get_node("Visual") is CapsuleVisual, "le bouton Visuel ne passe pas aux capsules")
+	_check(VisualSettings.load_choice() == &"capsules", "choix des capsules non enregistré")
+	_check(m.fighter_a.health == m.fighter_a.max_health and not m.match_over, "le changement de visuel ne relance pas un combat neuf")
+	game.queue_free()
+	await _frames(2)
+	var again = GAME_SCENE.instantiate()
+	add_child(again)
+	await _frames(3)
+	m = again.match_scene
+	_check(m.fighter_a.get_node("Visual") is CapsuleVisual, "le choix des capsules n'est pas conservé au relancement")
+	(m.get_node("Interface/VisualToggle") as VisualToggle).button().pressed.emit()
+	await _frames(3)
+	m = again.match_scene
+	_check(m.fighter_a.get_node("Visual") is SilhouetteVisual, "retour aux pantins impossible")
+	_check(VisualSettings.load_choice() == &"pantins", "retour aux pantins non enregistré")
+	again.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
 	_end()
