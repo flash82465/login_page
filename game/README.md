@@ -7,7 +7,7 @@ Socle du premier prototype jouable d'OKÉLUN (version de travail **0.5.0**, miss
 - **Godot 4.4.1** (éditeur standard, pas la version .NET) : ouvrir `game/project.godot`, puis F5.
 - **Clavier (ordinateur)** : A/D ou flèches pour se déplacer, J attaque légère, K attaque lourde, L garde (maintenir), Espace esquive.
 - **Écran tactile** : flèches à gauche ; à droite, bouclier (garde), petit rond (attaque légère), grand rond (attaque lourde), double flèche (esquive).
-- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (23 tests, code de sortie 0 si tout passe).
+- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (26 tests, code de sortie 0 si tout passe).
 - **Test de fumée** : `godot --headless --path game -- --smoke-test`.
 - **APK Android, versions et points de restauration** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
 
@@ -68,7 +68,10 @@ L'affichage d'un combattant est un composant séparé (`scripts/visual/fighter_v
 
 | Génération | Scène | Versions | État |
 | --- | --- | --- | --- |
-| Capsule | `capsule_v04.tscn` | v0.1 à v0.4.1 | conservée à l'identique (test d'équivalence et comparaison pixel à pixel avec V0.4.1) |
+| Capsule | `capsule_v04.tscn` | v0.1 à v0.4.1 | conservée à l'identique (test d'équivalence et comparaison pixel à pixel avec V0.4.1) ; **génération du jeu installé** |
+| Silhouette | `silhouette_tande.tscn`, `silhouette_mabe.tscn` | v0.5 (en revue) | étape 2 : pantin de 14 os, deux poses fixes (attente, garde), liseré discret, costume décoratif ; présente seulement dans l'environnement de revue |
+
+Une génération complète (visuel de chaque combattant et ambiance de l'arène) est décrite par une ressource `VisualGeneration` (`assets/visual/`). Les proportions, poses et costumes des silhouettes sont dans `scripts/visual/silhouette_profiles.gd`.
 
 **Banc de capture** (`tests/capture/`, exclu de l'APK) : rejoue des situations scriptées, photographie le vrai rendu et assemble des planches et des GIF lisibles sur téléphone. Le workflow manuel « Revue visuelle (planches) » (`.github/workflows/visual-review.yml`) les publie sur la branche `revue/mission-005` (images et pages uniquement) et peut comparer chaque image, pixel à pixel, au rendu d'une version de référence.
 

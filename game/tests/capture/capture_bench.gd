@@ -6,7 +6,9 @@ extends Node
 ## V0.4.1 (scène principale, contrôleur scripté, état des combattants) : le même banc tourne sur
 ## le code d'une version de référence, ce qui permet une comparaison pixel à pixel.
 ## Exclu de l'APK (dossier tests/). Lancement (affichage requis, par exemple xvfb-run) :
-##   godot --path game --resolution 1920x1080 --fixed-fps 60 res://tests/capture/capture_bench.tscn -- --out=DOSSIER --title=TEXTE
+##   godot --path game --resolution 1920x1080 --fixed-fps 60 res://tests/capture/capture_bench.tscn -- --out=DOSSIER --title=TEXTE [--generation=silhouette]
+## Mode capsule (par défaut) : états et séquences de la génération capsule, comparables à V0.4.1.
+## Mode silhouette : planches de la génération silhouette (étape 2), chargée à la demande.
 
 const MAIN_SCENE := preload("res://scenes/main/main.tscn")
 const ScriptedController := preload("res://tests/scripted_controller.gd")
@@ -20,6 +22,9 @@ const ROW_GAP := 30
 const FIGHTERS := ["tande", "mabe"]
 const FIGHTER_NAMES := ["Tandé", "Mabé"]
 const SIDES := ["droite", "gauche"]
+const SILHOUETTE_GENERATION := "res://assets/visual/generation_silhouette_v05.tres"
+const CAPTION_HEIGHT := 40
+const ZONE_COLORS := {"Head": Color(0.2, 0.95, 0.45, 0.4), "Torso": Color(1.0, 0.85, 0.2, 0.4), "Legs": Color(0.3, 0.6, 1.0, 0.4)}
 
 var _out := "user://capture"
 var _title := "OKÉLUN"
@@ -28,6 +33,8 @@ var _tiles := {}
 var _labels := {}
 var _manifest := {"planches": [], "sequences": [], "raw": 0}
 var _failed := false
+var _mode := "capsule"
+var _generation = null  # VisualGeneration, chargée seulement en mode silhouette
 
 
 func _ready() -> void:
@@ -36,6 +43,10 @@ func _ready() -> void:
 			_out = arg.substr(6)
 		elif arg.begins_with("--title="):
 			_title = arg.substr(8)
+		elif arg.begins_with("--generation="):
+			_mode = arg.substr(13)
+	if _mode == "silhouette":
+		_generation = load(SILHOUETTE_GENERATION)
 	for sub in ["raw", "planches", "sequences"]:
 		DirAccess.make_dir_recursive_absolute(_out.path_join(sub))
 	await _step()
@@ -44,6 +55,10 @@ func _ready() -> void:
 	_manifest["title"] = _title
 	print("CAPTURE rendu %s ; fenêtre %s ; viewport %s" % [_manifest["renderer"], DisplayServer.window_get_size(), get_viewport().get_visible_rect().size])
 	await _warm_up()
+	if _mode == "silhouette":
+		await _capture_silhouettes()
+		_finish()
+		return
 	for fighter_index in 2:
 		for facing_right in [true, false]:
 			await _capture_states(fighter_index, facing_right)
@@ -55,10 +70,14 @@ func _ready() -> void:
 	await _sequence_light_attack_slow()
 	if _failed:
 		return
+	_finish()
+
+
+func _finish() -> void:
 	var file := FileAccess.open(_out.path_join("manifest.json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify(_manifest, "  "))
 	file.close()
-	print("CAPTURE OK : %d images brutes, %d planches, %d séquences" % [_manifest["raw"], _manifest["planches"].size(), _manifest["sequences"].size()])
+	print("CAPTURE OK (%s) : %d images brutes, %d planches, %d séquences" % [_mode, _manifest["raw"], _manifest["planches"].size(), _manifest["sequences"].size()])
 	get_tree().quit(0)
 
 
@@ -100,6 +119,8 @@ func _place(fighter: Fighter, x: float) -> void:
 ## ou vers la gauche, à la distance donnée de son adversaire. Les deux sont pilotés par script.
 func _setup(fighter_index: int, facing_right: bool, distance: float) -> Dictionary:
 	var m = MAIN_SCENE.instantiate()
+	if _generation != null:
+		_generation.apply_to(m)
 	add_child(m)
 	await _step()
 	var ca := ScriptedController.new()
@@ -435,3 +456,218 @@ func _sequence_light_attack_slow() -> void:
 	await _teardown(ctx)
 	_manifest["sequences"].append({"dir": folder, "fps": 15, "frames": n,
 		"title": "Attaque légère de Tandé qui touche Mabé, ralenti x4 (une image par frame de jeu)"})
+
+
+# --- Génération silhouette (étape 2) ------------------------------------------------------
+
+func _steps(count: int) -> void:
+	for i in count:
+		await _step()
+
+
+func _save_raw(img: Image, name: String) -> void:
+	img.save_png(_out.path_join("raw").path_join(name + ".png"))
+	_manifest["raw"] += 1
+
+
+func _hide_visual(fighter: Fighter) -> void:
+	(fighter.get_node("Visual") as Node3D).visible = false
+
+
+## Noir pur : toutes les pièces du visuel en noir, sans liseré ni Marques.
+func _force_black(fighter: Fighter) -> void:
+	var black := StandardMaterial3D.new()
+	black.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	black.albedo_color = Color.BLACK
+	for node in fighter.get_node("Visual").find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).material_override = black
+
+
+## Zones de touche superposées (tête en vert, torse en jaune, jambes en bleu), toujours visibles.
+func _show_zones(fighter: Fighter) -> void:
+	for zone in fighter.get_node("Hurtboxes").get_children():
+		var shape_node := zone.get_node_or_null("CollisionShape3D") as CollisionShape3D
+		if shape_node == null or not ZONE_COLORS.has(String(zone.name)):
+			continue
+		var mesh: Mesh
+		if shape_node.shape is SphereShape3D:
+			var sphere := SphereMesh.new()
+			sphere.radius = (shape_node.shape as SphereShape3D).radius
+			sphere.height = sphere.radius * 2.0
+			mesh = sphere
+		elif shape_node.shape is BoxShape3D:
+			var box := BoxMesh.new()
+			box.size = (shape_node.shape as BoxShape3D).size
+			mesh = box
+		else:
+			continue
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.no_depth_test = true
+		material.albedo_color = ZONE_COLORS[String(zone.name)]
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = material
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shape_node.add_child(mi)
+
+
+func _midpoint(ctx: Dictionary) -> Vector3:
+	return (ctx["actor"].global_position + ctx["other"].global_position) * 0.5 + Vector3(0.0, 0.92, 0.0)
+
+
+func _capture_silhouettes() -> void:
+	var zones_legend := "Zones de touche : tête en vert, torse en jaune, jambes en bleu (inchangées)."
+	# 1. Chaque combattant seul, dans les deux orientations.
+	for fighter_index in 2:
+		var rows := []
+		for spec in [["Attente", false, false], ["Garde (blocage)", true, false], ["Zones de touche - attente", false, true], ["Zones de touche - garde", true, true]]:
+			var images := []
+			for facing_right in [true, false]:
+				var c := await _setup(fighter_index, facing_right, 2.0)
+				_hide_visual(c["other"])
+				c["me"].block = spec[1]
+				if spec[2]:
+					_show_zones(c["actor"])
+				await _steps(12)
+				var img := _grab()
+				_save_raw(img, "silhouette_%s_%s_%s" % [c["who"], c["side"], String(spec[0]).to_lower().replace(" ", "-")])
+				images.append(_crop(img, c["m"].camera, c["actor"].global_position + Vector3(0.0, 0.92, 0.0), TILE))
+				await _teardown(c)
+			rows.append({"label": spec[0], "images": images, "captions": ["Tourné vers la droite", "Tourné vers la gauche"]})
+		await _make_rows_planche("%s-1-seul.jpg" % FIGHTERS[fighter_index], "%s seul" % FIGHTER_NAMES[fighter_index],
+			"Vignettes à l'échelle 1:1 d'un écran 1080p. " + zones_legend, rows)
+	if _failed:
+		return
+
+	# 2. Les deux ensemble (2 m), 3. en noir pur, 4. au contact (0,7 m).
+	var together := []
+	var black := []
+	var contact := []
+	var specs := [
+		[together, "Attente : Tandé à gauche, Mabé à droite", 2.0, true, false, false, false],
+		[together, "Attente : côtés inversés", 2.0, false, false, false, false],
+		[together, "Les deux en garde (blocage)", 2.0, true, true, false, false],
+		[together, "Zones de touche", 2.0, true, false, true, false],
+		[black, "Noir pur : attente", 2.0, true, false, false, true],
+		[black, "Noir pur : côtés inversés", 2.0, false, false, false, true],
+		[black, "Noir pur : les deux en garde", 2.0, true, true, false, true],
+		[black, "Noir pur : au contact (0,7 m)", 0.7, true, false, false, true],
+		[contact, "Au contact (0,7 m) : attente", 0.7, true, false, false, false],
+		[contact, "Au contact : côtés inversés", 0.7, false, false, false, false],
+		[contact, "Au contact : les deux en garde", 0.7, true, true, false, false],
+		[contact, "Au contact : zones de touche", 0.7, true, false, true, false],
+	]
+	var index := 0
+	for spec in specs:
+		var c := await _setup(0, spec[3], spec[2])
+		if spec[4]:
+			c["me"].block = true
+			c["them"].block = true
+		if spec[5]:
+			_show_zones(c["actor"])
+			_show_zones(c["other"])
+		if spec[6]:
+			_force_black(c["actor"])
+			_force_black(c["other"])
+		await _steps(12)
+		var img := _grab()
+		_save_raw(img, "silhouette_duo_%02d" % index)
+		index += 1
+		var tile := _crop(img, c["m"].camera, _midpoint(c), Vector2i(1000, 640))
+		(spec[0] as Array).append({"label": spec[1], "images": [tile]})
+		await _teardown(c)
+	# Noir pur réduit de moitié : lisibilité sur un petit écran.
+	var c2 := await _setup(0, true, 2.0)
+	_force_black(c2["actor"])
+	_force_black(c2["other"])
+	await _steps(12)
+	var small := _crop(_grab(), c2["m"].camera, _midpoint(c2), Vector2i(1000, 640))
+	small.resize(500, 320, Image.INTERPOLATE_LANCZOS)
+	black.append({"label": "Noir pur, réduit de moitié (petit écran)", "images": [small]})
+	await _teardown(c2)
+	await _make_rows_planche("ensemble-2-les-deux.jpg", "Tandé et Mabé ensemble", "Distance 2 m, échelle 1:1 d'un écran 1080p. " + zones_legend, together)
+	await _make_rows_planche("ensemble-3-noir-pur.jpg", "Noir pur, sans couleurs", "Reconnaissables à la forme seule ? Échelle 1:1, puis réduit de moitié.", black)
+	await _make_rows_planche("ensemble-4-contact.jpg", "Au contact (0,7 m, distance minimale)", "Liserés et teintes distincts : qui est qui ? " + zones_legend, contact)
+
+	# 5. Taille réelle sur téléphone : écran de jeu complet, interface comprise.
+	var phone := [
+		["telephone-1-debut.jpg", "Taille réelle sur téléphone : début du combat (3 m)", 3.0, false],
+		["telephone-2-approche.jpg", "Taille réelle sur téléphone : approche (1,4 m)", 1.4, false],
+		["telephone-3-contact.jpg", "Taille réelle sur téléphone : au contact, Mabé en garde", 0.7, true],
+	]
+	for spec in phone:
+		var c := await _setup(0, true, spec[2])
+		(c["m"].get_node("Interface") as CanvasLayer).visible = true
+		c["them"].block = spec[3]
+		await _steps(12)
+		var img := _grab()
+		_save_raw(img, String(spec[0]).get_basename())
+		img.save_jpg(_out.path_join("planches").path_join(spec[0]), 0.9)
+		_manifest["planches"].append({"file": spec[0], "title": spec[1] + " (ouvrir en plein écran, téléphone à l'horizontale)"})
+		await _teardown(c)
+
+
+## Planche générique : chaque rangée a un titre et une ou plusieurs images côte à côte,
+## réduites seulement si elles dépassent la largeur disponible.
+func _make_rows_planche(file: String, title: String, subtitle: String, rows: Array) -> void:
+	var inner := PLANCHE_WIDTH - 2 * MARGIN
+	var layout := []
+	var height := HEADER_HEIGHT
+	for row in rows:
+		var images: Array = row["images"]
+		var cell := (inner - (images.size() - 1) * MARGIN) / images.size()
+		var sizes := []
+		var row_height := 0
+		for img: Image in images:
+			var k := minf(1.0, float(cell) / img.get_width())
+			var size := Vector2i(int(img.get_width() * k), int(img.get_height() * k))
+			sizes.append(size)
+			row_height = maxi(row_height, size.y)
+		var captions: bool = row.has("captions")
+		layout.append({"cell": cell, "sizes": sizes, "height": row_height, "captions": captions})
+		height += ROW_LABEL_HEIGHT + row_height + (CAPTION_HEIGHT if captions else 0) + ROW_GAP
+	height += MARGIN
+	var vp := SubViewport.new()
+	vp.size = Vector2i(PLANCHE_WIDTH, height)
+	vp.disable_3d = true
+	vp.transparent_bg = false
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	var root := Control.new()
+	root.size = Vector2(vp.size)
+	vp.add_child(root)
+	_rect(root, Rect2(Vector2.ZERO, Vector2(vp.size)), Color(0.10, 0.09, 0.08))
+	_text(root, title, Vector2(MARGIN, 22), 42, Color(0.96, 0.76, 0.42))
+	_text(root, _title, Vector2(MARGIN, 82), 24, Color(0.82, 0.80, 0.76))
+	var sub := Label.new()
+	sub.text = subtitle
+	sub.position = Vector2(MARGIN, 116)
+	sub.size = Vector2(inner, 50)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.add_theme_font_size_override("font_size", 21)
+	sub.add_theme_color_override("font_color", Color(0.66, 0.64, 0.6))
+	root.add_child(sub)
+	var y := HEADER_HEIGHT
+	for r in rows.size():
+		var row: Dictionary = rows[r]
+		var info: Dictionary = layout[r]
+		_text(root, row["label"], Vector2(MARGIN, y + 10), 30, Color(1, 1, 1))
+		var ty: int = y + ROW_LABEL_HEIGHT
+		var images: Array = row["images"]
+		for i in images.size():
+			var size: Vector2i = info["sizes"][i]
+			var cell: int = info["cell"]
+			var x := MARGIN + i * (cell + MARGIN) + (cell - size.x) / 2
+			_tile(root, images[i], Rect2(x, ty, size.x, size.y))
+			if info["captions"]:
+				_text(root, row["captions"][i], Vector2(x, ty + size.y + 6), 22, Color(0.75, 0.72, 0.68))
+		y += ROW_LABEL_HEIGHT + int(info["height"]) + (CAPTION_HEIGHT if info["captions"] else 0) + ROW_GAP
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)
+	img.save_jpg(_out.path_join("planches").path_join(file), 0.9)
+	vp.queue_free()
+	_manifest["planches"].append({"file": file, "title": title})

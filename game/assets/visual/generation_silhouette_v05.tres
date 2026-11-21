@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="VisualGeneration" load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/visual/visual_generation.gd" id="1_generation"]
+[ext_resource type="PackedScene" path="res://scenes/fighters/visuals/silhouette_tande.tscn" id="2_tande"]
+[ext_resource type="PackedScene" path="res://scenes/fighters/visuals/silhouette_mabe.tscn" id="3_mabe"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_dusk"]
+sky_top_color = Color(0.6, 0.36, 0.2, 1)
+sky_horizon_color = Color(0.94, 0.76, 0.5, 1)
+sky_curve = 0.1
+ground_bottom_color = Color(0.42, 0.27, 0.16, 1)
+ground_horizon_color = Color(0.9, 0.68, 0.45, 1)
+
+[sub_resource type="Sky" id="Sky_dusk"]
+sky_material = SubResource("ProceduralSkyMaterial_dusk")
+
+[sub_resource type="Environment" id="Environment_dusk"]
+background_mode = 2
+sky = SubResource("Sky_dusk")
+ambient_light_source = 2
+ambient_light_color = Color(0.95, 0.8, 0.62, 1)
+ambient_light_energy = 0.7
+tonemap_mode = 0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor_dusk"]
+albedo_color = Color(0.6, 0.42, 0.27, 1)
+roughness = 0.95
+
+[resource]
+script = ExtResource("1_generation")
+label = "Silhouette (v0.5)"
+fighter_a_visual = ExtResource("2_tande")
+fighter_b_visual = ExtResource("3_mabe")
+environment = SubResource("Environment_dusk")
+floor_material = SubResource("StandardMaterial3D_floor_dusk")

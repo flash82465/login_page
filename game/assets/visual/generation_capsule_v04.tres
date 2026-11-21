@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="VisualGeneration" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/visual/visual_generation.gd" id="1_generation"]
+[ext_resource type="PackedScene" path="res://scenes/fighters/visuals/capsule_v04.tscn" id="2_capsule"]
+
+[resource]
+script = ExtResource("1_generation")
+label = "Capsule (v0.1 à v0.4.1)"
+fighter_a_visual = ExtResource("2_capsule")
+fighter_b_visual = ExtResource("2_capsule")

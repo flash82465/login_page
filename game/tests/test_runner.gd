@@ -44,6 +44,9 @@ func _ready() -> void:
 	await _test_ai_balance()
 	# Mission 005 — générations visuelles
 	await _test_capsule_visual_identical_to_v041()
+	await _test_silhouette_proportions_and_zones()
+	await _test_silhouette_mirror()
+	await _test_combat_identical_across_generations()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -813,3 +816,152 @@ func _capsule_color(f: Fighter) -> Color:
 
 func _same_v3(u: Vector3, w: Vector3) -> bool:
 	return u.is_equal_approx(w)
+
+
+# --- Mission 005, étape 2 : génération silhouette (environnement de revue) ----------------
+
+const SILHOUETTE_GENERATION := preload("res://assets/visual/generation_silhouette_v05.tres")
+
+
+func _new_match_with(generation):
+	var m = MAIN_SCENE.instantiate()
+	if generation != null:
+		generation.apply_to(m)
+	add_child(m)
+	await _frames(1)
+	var ca := ScriptedController.new()
+	m.add_child(ca)
+	m.fighter_a.controller = ca
+	var cb := ScriptedController.new()
+	m.add_child(cb)
+	m.fighter_b.controller = cb
+	return m
+
+
+func _test_silhouette_proportions_and_zones() -> void:
+	_begin("Silhouettes : tête à 8 cm au plus de sa zone, pieds au sol, torse dans sa zone ; silhouettes distinctes d'au moins 15 %")
+	var m = await _new_match_with(SILHOUETTE_GENERATION)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_place(a, -1.0)
+	_place(b, 1.0)
+	var ratios := {}
+	for pose: StringName in [&"attente", &"garde"]:
+		_ctrl(a).block = pose == &"garde"
+		_ctrl(b).block = pose == &"garde"
+		await _frames(6)
+		for f: Fighter in [a, b]:
+			var v := f.get_node("Visual") as SilhouetteVisual
+			_check(v != null, "%s : la génération silhouette n'est pas appliquée" % f.display_name)
+			if v == null:
+				continue
+			_check(v.current_pose() == pose, "%s : pose %s au lieu de %s" % [f.display_name, v.current_pose(), pose])
+			var head := v.joint_global(&"head")
+			var zone := (f.get_node("Hurtboxes/Head/CollisionShape3D") as Node3D).global_position
+			var offset := Vector2(head.x - zone.x, head.y - zone.y).length()
+			_check(offset <= 0.08, "%s (%s) : tête à %.1f cm du centre de sa zone" % [f.display_name, pose, offset * 100.0])
+			var feet := v.lowest_point_global()
+			_check(feet >= -0.01 and feet <= 0.02, "%s (%s) : pieds à %.1f cm du sol" % [f.display_name, pose, feet * 100.0])
+			var torso := f.get_node("Hurtboxes/Torso/CollisionShape3D") as CollisionShape3D
+			var half := (torso.shape as BoxShape3D).size * 0.5
+			for joint: StringName in [&"waist", &"chest"]:
+				var p := v.joint_global(joint) - torso.global_position
+				_check(absf(p.x) <= half.x and absf(p.y) <= half.y, "%s (%s) : %s hors de la zone du torse" % [f.display_name, pose, joint])
+			var ratio := v.extent_ratio()
+			ratios["%s/%s" % [f.display_name, pose]] = ratio
+			print("    SILHOUETTE %s, %s : tête à %.1f cm de sa zone, pieds à %+.1f cm, largeur/hauteur %.3f" % [f.display_name, pose, offset * 100.0, feet * 100.0, ratio])
+		if ratios.has("%s/%s" % [a.display_name, pose]) and ratios.has("%s/%s" % [b.display_name, pose]):
+			var diff: float = float(ratios["%s/%s" % [b.display_name, pose]]) / float(ratios["%s/%s" % [a.display_name, pose]]) - 1.0
+			_check(diff >= 0.15, "silhouettes trop proches (%s) : écart %.0f %%" % [pose, diff * 100.0])
+			print("    SILHOUETTE écart Mabé / Tandé (%s) : %.0f %%" % [pose, diff * 100.0])
+	await _close(m)
+	_end()
+
+
+func _test_silhouette_mirror() -> void:
+	_begin("Silhouettes : miroir 2D, le bras avant reste devant et le poing avant vers l'adversaire, dans les deux orientations")
+	var m = await _new_match_with(SILHOUETTE_GENERATION)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	for side: float in [1.0, -1.0]:
+		_place(a, -1.0 * side)
+		_place(b, 1.0 * side)
+		await _frames(6)
+		for f: Fighter in [a, b]:
+			var v := f.get_node("Visual") as SilhouetteVisual
+			if v == null:
+				_check(false, "%s : la génération silhouette n'est pas appliquée" % f.display_name)
+				continue
+			var chest := v.joint_global(&"chest")
+			var near := v.joint_global(&"wrist_n")
+			var far := v.joint_global(&"wrist_f")
+			var looking := "à droite" if f.facing > 0.0 else "à gauche"
+			_check(near.z > chest.z and far.z < chest.z, "%s regardant %s : bras avant et bras arrière inversés" % [f.display_name, looking])
+			_check((near.x - f.global_position.x) * f.facing > 0.0, "%s regardant %s : poing avant du mauvais côté" % [f.display_name, looking])
+	await _close(m)
+	_end()
+
+
+func _test_combat_identical_across_generations() -> void:
+	_begin("Combat identique quelle que soit la génération visuelle (capsule ou silhouette) : positions, états et vie, frame par frame")
+	var with_capsule: PackedStringArray = await _record_fight(null)
+	var with_silhouette: PackedStringArray = await _record_fight(SILHOUETTE_GENERATION)
+	var first := -1
+	for i in mini(with_capsule.size(), with_silhouette.size()):
+		if with_capsule[i] != with_silhouette[i]:
+			first = i
+			break
+	_check(with_capsule.size() == with_silhouette.size() and first == -1,
+		"première différence à la frame %d : « %s » / « %s »" % [first, with_capsule[maxi(first, 0)], with_silhouette[maxi(first, 0)]])
+	print("    GÉNÉRATIONS : %d frames comparées, %s" % [with_capsule.size(), "identiques" if first == -1 else "différentes"])
+	_end()
+
+
+func _record_fight(generation) -> PackedStringArray:
+	var m = await _new_match_with(generation)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	var ca = _ctrl(a)
+	var cb = _ctrl(b)
+	var trace := PackedStringArray()
+	_place(a, -1.2)
+	_place(b, 1.2)
+	for frame in 480:
+		match frame:
+			5:
+				ca.move_axis = 1.0
+			30:
+				ca.move_axis = 0.0
+			40:
+				ca.press_light()
+			90:
+				cb.move_axis = -1.0
+			110:
+				cb.move_axis = 0.0
+			115:
+				cb.press_heavy()
+			118:
+				ca.block = true
+			200:
+				ca.block = false
+			210:
+				ca.press_dodge()
+			250:
+				cb.press_light()
+			300:
+				ca.move_axis = 1.0
+			330:
+				ca.move_axis = 0.0
+			335:
+				ca.press_heavy()
+			400:
+				cb.block = true
+			405:
+				ca.press_light()
+			440:
+				cb.block = false
+		await _frames(1)
+		trace.append("%d %d %d %.5f %.5f %.3f %.3f %d %d" % [frame, a.state, b.state, a.global_position.x, b.global_position.x,
+			a.health, b.health, a.get_state_frame(), b.get_state_frame()])
+	await _close(m)
+	return trace
