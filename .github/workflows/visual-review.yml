@@ -21,7 +21,7 @@ on:
         description: "Version de référence pour la comparaison pixel à pixel (« aucune » pour ne pas comparer)"
         default: "version/v0.4.1"
       generation:
-        description: "Génération visuelle à présenter : capsule ou silhouette (la capsule reste comparée à la référence)"
+        description: "À présenter : capsule, silhouette (poses) ou animations (la capsule reste comparée à la référence)"
         default: "capsule"
   push:
     branches: ["godot/android-first"]
@@ -54,7 +54,7 @@ jobs:
       - name: Vérifier les paramètres
         run: |
           [[ "$STEP" =~ ^[a-z0-9-]+$ ]] || { echo "::error::nom d'étape invalide : $STEP"; exit 1; }
-          [[ "$GENERATION" =~ ^(capsule|silhouette)$ ]] || { echo "::error::génération inconnue : $GENERATION"; exit 1; }
+          [[ "$GENERATION" =~ ^(capsule|silhouette|animations)$ ]] || { echo "::error::génération inconnue : $GENERATION"; exit 1; }
           echo "Étape $STEP ; génération : $GENERATION ; référence : $REFERENCE"
 
       - name: Récupérer la version de référence (lecture seule)
@@ -112,7 +112,7 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" capture-actuel.log; then exit 1; fi
 
       - name: Capturer le repli capsule du code actuel (pour la comparaison)
-        if: env.GENERATION == 'silhouette' && env.REFERENCE != 'aucune'
+        if: env.GENERATION != 'capsule' && env.REFERENCE != 'aucune'
         run: |
           set -o pipefail
           timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path game --resolution 1920x1080 \
@@ -146,7 +146,7 @@ jobs:
         run: |
           REF_ARGS=()
           if [ "$REFERENCE" != "aucune" ]; then REF_ARGS=(--reference-dir out/reference --reference "$REFERENCE"); fi
-          if [ "$GENERATION" = "silhouette" ] && [ "$REFERENCE" != "aucune" ]; then
+          if [ "$GENERATION" != "capsule" ] && [ "$REFERENCE" != "aucune" ]; then
             REF_ARGS+=(--compare-dir out/capsule --compare-label "Repli capsule : équivalence avec")
           fi
           python3 .github/scripts/visual_review.py --current out/actuel "${REF_ARGS[@]}" \

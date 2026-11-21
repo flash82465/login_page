@@ -47,6 +47,14 @@ def compare(current: Path, reference: Path) -> dict:
 def make_gifs(current: Path, manifest: dict, dest: Path) -> list:
     gifs = []
     for seq in manifest["sequences"]:
+        if seq.get("format") == "mp4":
+            out = dest / f"{seq['dir']}.mp4"
+            subprocess.run([
+                "ffmpeg", "-loglevel", "error", "-y", "-framerate", str(seq["fps"]),
+                "-i", str(current / "sequences" / seq["dir"] / "f_%04d.png"),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "27", "-movflags", "+faststart", str(out)], check=True)
+            gifs.append({"file": out.name, "title": seq["title"], "size": out.stat().st_size, "video": True})
+            continue
         out = dest / f"{seq['dir']}.gif"
         subprocess.run([
             "ffmpeg", "-loglevel", "error", "-y", "-framerate", str(seq["fps"]),
@@ -83,6 +91,9 @@ def page(prefix: str, a: argparse.Namespace, manifest: dict, result, gifs: list,
     if gifs:
         lines += ["### Séquences animées", ""]
         for g in gifs:
+            if g.get("video"):
+                lines += [f"**{g['title']}** : [ouvrir la vidéo MP4]({prefix}{g['file']}) ({g['size'] // 1024} Ko)", ""]
+                continue
             lines += [f"**{g['title']}** ({g['size'] // 1024} Ko)", "", f"![{g['title']}]({prefix}{g['file']})", ""]
     return "\n".join(lines) + "\n"
 
