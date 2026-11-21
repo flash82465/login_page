@@ -61,15 +61,17 @@ static func _tande() -> Dictionary:
 			]),
 		},
 		"costume": [
-			{"bone": &"belly", "z": 0.21, "thickness": 0.025, "color": Color(0.14, 0.09, 0.058),
+			{"bone": &"belly", "z": 0.21, "thickness": 0.025, "color": Color(0.12, 0.076, 0.05),
 				"polygon": PackedVector2Array([
-					Vector2(0.155, 1.05), Vector2(0.235, 0.72), Vector2(0.09, 0.685), Vector2(-0.05, 0.7),
-					Vector2(-0.19, 0.745), Vector2(-0.145, 1.05),
+					Vector2(0.135, 1.045), Vector2(0.225, 0.735), Vector2(0.15, 0.7), Vector2(0.07, 0.745),
+					Vector2(0.0, 0.7), Vector2(-0.12, 0.71), Vector2(-0.19, 0.755), Vector2(-0.15, 1.045),
+					Vector2(-0.01, 1.065),
 				])},
-			{"bone": &"upper_arm_n", "z": 0.2, "thickness": 0.03, "color": Color(0.2, 0.175, 0.155),
+			{"bone": &"upper_arm_n", "z": 0.2, "thickness": 0.03, "color": Color(0.13, 0.115, 0.1),
 				"polygon": PackedVector2Array([
-					Vector2(-0.03, 1.46), Vector2(0.01, 1.545), Vector2(0.11, 1.555), Vector2(0.175, 1.47),
-					Vector2(0.15, 1.38), Vector2(0.04, 1.37),
+					Vector2(-0.03, 1.44), Vector2(-0.01, 1.5), Vector2(0.03, 1.545), Vector2(0.08, 1.56),
+					Vector2(0.13, 1.54), Vector2(0.165, 1.49), Vector2(0.17, 1.43), Vector2(0.13, 1.4),
+					Vector2(0.07, 1.39), Vector2(0.01, 1.4),
 				])},
 		],
 		"extra": [
@@ -148,6 +150,6 @@ static func _mabe() -> Dictionary:
 			{"bone": &"chest", "z": 0.0, "a": Vector2(-0.04, 1.2), "b": Vector2(0.03, 1.44), "r0": 0.17, "r1": 0.17},
 		],
 		"marks": [
-			{"bone": &"neck", "a": Vector2(0.035, 1.46), "b": Vector2(0.07, 1.555)},
+			{"bone": &"neck", "a": Vector2(-0.05, 1.455), "b": Vector2(-0.015, 1.535), "z": 0.26},
 		],
 	}

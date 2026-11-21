@@ -186,7 +186,11 @@ func _build() -> void:
 		var a := _to_bone_local(mark["bone"], mark["a"])
 		var b := _to_bone_local(mark["bone"], mark["b"])
 		var r: Vector2 = radii[mark["bone"]]
-		var t := Transform3D(Basis(Vector3.BACK, (b - a).angle() - PI / 2.0), Vector3(a.x, a.y, (r.x + r.y) * 0.5 + 0.006))
+		# Profondeur : à la surface de l'os, ou imposée (Marque devant une autre pièce, comme la nuque de Mabé).
+		var z := (r.x + r.y) * 0.5 + 0.006
+		if mark.has("z"):
+			z = float(mark["z"]) - _bone_z(mark["bone"])
+		var t := Transform3D(Basis(Vector3.BACK, (b - a).angle() - PI / 2.0), Vector3(a.x, a.y, z))
 		_add_mesh(_bone_nodes[mark["bone"]], _tapered_capsule(MARK_RADIUS, MARK_RADIUS, a.distance_to(b)), t, mark_material)
 
 

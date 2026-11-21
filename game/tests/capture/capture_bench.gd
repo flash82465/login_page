@@ -479,6 +479,7 @@ func _force_black(fighter: Fighter) -> void:
 	var black := StandardMaterial3D.new()
 	black.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	black.albedo_color = Color.BLACK
+	black.cull_mode = BaseMaterial3D.CULL_DISABLED  # pièces plates : les deux faces
 	for node in fighter.get_node("Visual").find_children("*", "MeshInstance3D", true, false):
 		(node as MeshInstance3D).material_override = black
 
