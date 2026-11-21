@@ -1,9 +1,9 @@
 # Étape 2 - silhouettes de Tandé et Mabé (poses fixes)
 
-- Code capturé : [`4c6f964`](https://github.com/flash82465/login_page/commit/4c6f96444dede7b290b737057d4977f554e5ea39) (branche `godot/android-first`)
+- Code capturé : [`c3898fd`](https://github.com/flash82465/login_page/commit/c3898fd808fdd796b85189085f9738bd5380a8c0) (branche `godot/android-first`)
 - Rendu : Vulkan (llvmpipe (LLVM 20.1.2, 256 bits)), 1920 × 1080, 60 images/s fixes, interface masquée
 - **Repli capsule : équivalence avec `version/v0.4.1` : ✅ identique au pixel près sur 207 images sur 207** (états et séquences)
-- Exécution : [journal et artefact](https://github.com/flash82465/login_page/actions/runs/44865809401)
+- Exécution : [journal et artefact](https://github.com/flash82465/login_page/actions/runs/44866527187)
 
 Touchez une image pour l'ouvrir en grand, puis zoomez.
 
