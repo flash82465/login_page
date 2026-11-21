@@ -1,0 +1,41 @@
+# Étape 2 - silhouettes de Tandé et Mabé (poses fixes)
+
+- Code capturé : [`4c6f964`](https://github.com/flash82465/login_page/commit/4c6f96444dede7b290b737057d4977f554e5ea39) (branche `godot/android-first`)
+- Rendu : Vulkan (llvmpipe (LLVM 20.1.2, 256 bits)), 1920 × 1080, 60 images/s fixes, interface masquée
+- **Repli capsule : équivalence avec `version/v0.4.1` : ✅ identique au pixel près sur 207 images sur 207** (états et séquences)
+- Exécution : [journal et artefact](https://github.com/flash82465/login_page/actions/runs/44865809401)
+
+Touchez une image pour l'ouvrir en grand, puis zoomez.
+
+### Tandé seul
+
+![Tandé seul](tande-1-seul.jpg)
+
+### Mabé seul
+
+![Mabé seul](mabe-1-seul.jpg)
+
+### Tandé et Mabé ensemble
+
+![Tandé et Mabé ensemble](ensemble-2-les-deux.jpg)
+
+### Noir pur, sans couleurs
+
+![Noir pur, sans couleurs](ensemble-3-noir-pur.jpg)
+
+### Au contact (0,7 m, distance minimale)
+
+![Au contact (0,7 m, distance minimale)](ensemble-4-contact.jpg)
+
+### Taille réelle sur téléphone : début du combat (3 m) (ouvrir en plein écran, téléphone à l'horizontale)
+
+![Taille réelle sur téléphone : début du combat (3 m) (ouvrir en plein écran, téléphone à l'horizontale)](telephone-1-debut.jpg)
+
+### Taille réelle sur téléphone : approche (1,4 m) (ouvrir en plein écran, téléphone à l'horizontale)
+
+![Taille réelle sur téléphone : approche (1,4 m) (ouvrir en plein écran, téléphone à l'horizontale)](telephone-2-approche.jpg)
+
+### Taille réelle sur téléphone : au contact, Mabé en garde (ouvrir en plein écran, téléphone à l'horizontale)
+
+![Taille réelle sur téléphone : au contact, Mabé en garde (ouvrir en plein écran, téléphone à l'horizontale)](telephone-3-contact.jpg)
+
