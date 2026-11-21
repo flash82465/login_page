@@ -190,7 +190,7 @@ func _build() -> void:
 			_add_mesh(_bone_nodes[owner_bone], _skirt(owner_bone, volume["rings"], z), Transform3D.IDENTITY, material)
 		else:
 			var center := _to_bone_local(owner_bone, volume["center"])
-			var radii: Vector3 = volume["radii"]
+			var axes: Vector3 = volume["radii"]
 			var sphere := SphereMesh.new()
 			sphere.radius = 1.0
 			sphere.height = 2.0
@@ -198,7 +198,7 @@ func _build() -> void:
 			sphere.rings = 8
 			# Demi-axes donnés dans la pose de référence : on annule la rotation du nœud de l'os.
 			var turn := Basis(Vector3.BACK, -(float(_info[owner_bone]["angle"]) - PI / 2.0))
-			_add_mesh(_bone_nodes[owner_bone], sphere, Transform3D(turn * Basis.from_scale(radii), Vector3(center.x, center.y, z)), material)
+			_add_mesh(_bone_nodes[owner_bone], sphere, Transform3D(turn * Basis.from_scale(axes), Vector3(center.x, center.y, z)), material)
 	var mark_material := _material(_profile["mark"], false)
 	for mark in _profile["marks"]:
 		var a := _to_bone_local(mark["bone"], mark["a"])
@@ -275,9 +275,9 @@ func _outline_points() -> PackedVector2Array:
 				pts.append(_follow_bone(volume["bone"], Vector2(ring.y, ring.x)) + lift)
 				pts.append(_follow_bone(volume["bone"], Vector2(ring.z, ring.x)) + lift)
 		else:
-			var radii: Vector3 = volume["radii"]
+			var axes: Vector3 = volume["radii"]
 			var c := _follow_bone(volume["bone"], volume["center"]) + lift
-			pts.append_array(PackedVector2Array([c + Vector2(-radii.x, 0.0), c + Vector2(radii.x, 0.0), c + Vector2(0.0, radii.y)]))
+			pts.append_array(PackedVector2Array([c + Vector2(-axes.x, 0.0), c + Vector2(axes.x, 0.0), c + Vector2(0.0, axes.y)]))
 	return pts
 
 
