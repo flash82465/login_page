@@ -1194,16 +1194,18 @@ func _test_game_starts_with_pantins_and_toggles() -> void:
 	_check(toggle != null, "bouton Visuel absent")
 	if toggle != null:
 		var arrow: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
-		_touch(0, _button_center(arrow), true)
+		var arrow_position := _button_center(arrow)  # le bouton disparaît avec l'ancien combat
+		_touch(0, arrow_position, true)
 		await _frames(2)
 		var center := _control_center(toggle.button())
 		_touch(1, center, true)
 		await _frames(1)
 		_touch(1, center, false)
 		await _frames(3)
-		_touch(0, _button_center(arrow), false)
-		await _frames(2)
+		_touch(0, arrow_position, false)
+		await _frames(10)
 	m = game.match_scene
+	_check(absf(m.fighter_a.velocity.x) < 0.05 and m.fighter_a.state == Fighter.State.IDLE, "après le changement de visuel, un déplacement reste bloqué")
 	_check(m.fighter_a.get_node("Visual") is CapsuleVisual and m.fighter_b.get_node("Visual") is CapsuleVisual, "le bouton Visuel ne passe pas aux capsules")
 	_check(VisualSettings.load_choice() == &"capsules", "choix des capsules non enregistré")
 	_check(m.fighter_a.health == m.fighter_a.max_health and not m.match_over, "le changement de visuel ne relance pas un combat neuf")
