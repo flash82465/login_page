@@ -20,6 +20,9 @@ on:
       reference:
         description: "Version de référence pour la comparaison pixel à pixel (« aucune » pour ne pas comparer)"
         default: "version/v0.4.1"
+      generation:
+        description: "Génération visuelle à présenter : capsule ou silhouette (la capsule reste comparée à la référence)"
+        default: "capsule"
   push:
     branches: ["godot/android-first"]
     paths: [".github/workflows/visual-review.yml"]
@@ -43,6 +46,7 @@ jobs:
       STEP: ${{ github.event.inputs.step || 'etape-1-capsule' }}
       TITLE: ${{ github.event.inputs.title || 'Étape 1 - génération visuelle capsule (v0.1 à v0.4.1)' }}
       REFERENCE: ${{ github.event.inputs.reference || 'version/v0.4.1' }}
+      GENERATION: ${{ github.event.inputs.generation || 'capsule' }}
     steps:
       - name: Récupérer le code à capturer
         uses: actions/checkout@v4
@@ -50,7 +54,8 @@ jobs:
       - name: Vérifier les paramètres
         run: |
           [[ "$STEP" =~ ^[a-z0-9-]+$ ]] || { echo "::error::nom d'étape invalide : $STEP"; exit 1; }
-          echo "Étape $STEP ; référence : $REFERENCE"
+          [[ "$GENERATION" =~ ^(capsule|silhouette)$ ]] || { echo "::error::génération inconnue : $GENERATION"; exit 1; }
+          echo "Étape $STEP ; génération : $GENERATION ; référence : $REFERENCE"
 
       - name: Récupérer la version de référence (lecture seule)
         if: env.REFERENCE != 'aucune'
@@ -102,9 +107,19 @@ jobs:
           set -o pipefail
           timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path game --resolution 1920x1080 \
             --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
-            -- --out="$PWD/out/actuel" --title="$TITLE" 2>&1 | tee capture-actuel.log
+            -- --out="$PWD/out/actuel" --title="$TITLE" --generation="$GENERATION" 2>&1 | tee capture-actuel.log
           grep -q "^CAPTURE OK" capture-actuel.log
           if grep -E "SCRIPT ERROR|Parse Error" capture-actuel.log; then exit 1; fi
+
+      - name: Capturer le repli capsule du code actuel (pour la comparaison)
+        if: env.GENERATION == 'silhouette' && env.REFERENCE != 'aucune'
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/capsule" --title="Repli capsule" 2>&1 | tee capture-capsule.log
+          grep -q "^CAPTURE OK" capture-capsule.log
+          if grep -E "SCRIPT ERROR|Parse Error" capture-capsule.log; then exit 1; fi
 
       - name: Capturer la référence
         if: env.REFERENCE != 'aucune'
@@ -131,6 +146,9 @@ jobs:
         run: |
           REF_ARGS=()
           if [ "$REFERENCE" != "aucune" ]; then REF_ARGS=(--reference-dir out/reference --reference "$REFERENCE"); fi
+          if [ "$GENERATION" = "silhouette" ] && [ "$REFERENCE" != "aucune" ]; then
+            REF_ARGS+=(--compare-dir out/capsule --compare-label "Repli capsule : équivalence avec")
+          fi
           python3 .github/scripts/visual_review.py --current out/actuel "${REF_ARGS[@]}" \
             --review revue --step "$STEP" --title "$TITLE" --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" \
             --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \

@@ -66,10 +66,10 @@ def page(prefix: str, a: argparse.Namespace, manifest: dict, result, gifs: list,
     if result is None:
         lines.append("- Comparaison pixel à pixel : aucune référence demandée")
     elif result["identical"]:
-        lines.append(f"- **Équivalence avec `{a.reference}` : ✅ identique au pixel près sur "
+        lines.append(f"- **{a.compare_label} `{a.reference}` : ✅ identique au pixel près sur "
                      f"{result['total']} images sur {result['total']}** (états et séquences)")
     else:
-        lines.append(f"- **Équivalence avec `{a.reference}` : ❌ {len(result['different'])} image(s) différente(s), "
+        lines.append(f"- **{a.compare_label} `{a.reference}` : ❌ {len(result['different'])} image(s) différente(s), "
                      f"{len(result['missing'])} manquante(s), sur {result['total']}**")
         for r in result["different"][:12]:
             detail = r.get("status") or f"{r['pixels']} pixels, écart maximal {r['max']}/255"
@@ -92,6 +92,8 @@ def main() -> int:
     ap.add_argument("--current", type=Path, required=True)
     ap.add_argument("--reference-dir", type=Path)
     ap.add_argument("--reference", default="aucune")
+    ap.add_argument("--compare-dir", type=Path, help="captures comparées à la référence (par défaut : --current)")
+    ap.add_argument("--compare-label", default="Équivalence avec")
     ap.add_argument("--review", type=Path, required=True)
     ap.add_argument("--step", required=True)
     ap.add_argument("--title", required=True)
@@ -103,7 +105,7 @@ def main() -> int:
     a = ap.parse_args()
 
     manifest = json.loads((a.current / "manifest.json").read_text(encoding="utf-8"))
-    result = compare(a.current, a.reference_dir) if a.reference_dir else None
+    result = compare(a.compare_dir or a.current, a.reference_dir) if a.reference_dir else None
 
     dest = a.review / a.step
     if dest.exists():
