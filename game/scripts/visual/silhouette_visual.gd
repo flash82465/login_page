@@ -51,8 +51,11 @@ const BLEND_FRAMES := {&"locomotion": 5, &"garde": 4, &"coup_bloque": 3, &"leger
 ## Calage au sol : « sol » (pieds posés), « libre » (petit saut de l'esquive), « allonge » (corps au sol).
 const GROUND_MODE := {&"esquive": &"libre", &"ko": &"allonge"}
 const BREATH_PERIOD := 96
-## Part du chemin vers le coup atteinte à la dernière image de préparation.
-const STRIKE_LEAD := 0.8
+## Part du chemin vers le coup atteinte à la dernière image de préparation, et courbe d'accélération.
+const STRIKE_LEAD := 0.85
+const STRIKE_POWER := 1.4
+## Part de la préparation consacrée à l'armé (le reste lance le coup) ; plus longue pour le coup lourd.
+const WINDUP_SHARE := {&"light": 0.5, &"heavy": 0.55}
 const LEGS := {&"n": [8, 9, 10], &"f": [11, 12, 13]}
 
 @export var character: StringName = &"tande"
@@ -338,10 +341,11 @@ func _attack(fighter: Fighter, frame: int, armed_key: StringName, strike_key: St
 	var strike: Dictionary = _keys[strike_key]
 	if frame <= startup:
 		var t := float(frame) / startup
-		if t <= 0.5:
-			return _solved(_mix(rest, armed, smoothstep(0.0, 1.0, t / 0.5)))
-		var u := (t - 0.5) / 0.5
-		return _solved(_mix(armed, strike, STRIKE_LEAD * u * u))
+		var share: float = WINDUP_SHARE.get(attack.id, 0.5)
+		if t <= share:
+			return _solved(_mix(rest, armed, smoothstep(0.0, 1.0, t / share)))
+		var u := (t - share) / (1.0 - share)
+		return _solved(_mix(armed, strike, STRIKE_LEAD * pow(u, STRIKE_POWER)))
 	if frame <= startup + active:
 		return _solved(strike)
 	return _solved(_mix(strike, rest, smoothstep(0.0, 1.0, float(frame - startup - active) / attack.recovery_frames)))

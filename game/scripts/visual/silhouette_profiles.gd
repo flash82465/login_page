@@ -229,7 +229,7 @@ static func _mabe() -> Dictionary:
 			&"lourde_armee": {"ik": true, "points": PackedVector2Array([
 					Vector2(-0.07, 0.88), Vector2(-0.0522, 1.0635), Vector2(-0.0198, 1.2825), Vector2(-0.0622, 1.46),
 					Vector2(-0.0922, 1.6), Vector2(-0.0041, 1.3665), Vector2(0.1459, 1.1067), Vector2(0.3884, 1.2467),
-					Vector2(-0.0667, 1.3758), Vector2(-0.1791, 1.6539), Vector2(-0.4215, 1.7939), Vector2(-0.0489, 0.8725),
+					Vector2(-0.0667, 1.3758), Vector2(-0.0405, 1.6746), Vector2(-0.0649, 1.9536), Vector2(-0.0489, 0.8725),
 					Vector2(0.219, 0.5201), Vector2(0.19, 0.1), Vector2(0.33, 0.04), Vector2(-0.0998, 0.8763),
 					Vector2(0.0307, 0.4364), Vector2(-0.2, 0.1), Vector2(-0.07, 0.04),
 				])},

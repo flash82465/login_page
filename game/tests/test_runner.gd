@@ -1019,7 +1019,7 @@ func _test_silhouette_strikes_in_hitbox() -> void:
 				var label := "%s, %s, regard %s" % [f.display_name, "lourde" if heavy else "légère", "à droite" if f.facing > 0.0 else "à gauche"]
 				_check(active == attack.active_frames, "%s : %d images actives au lieu de %d" % [label, active, attack.active_frames])
 				_check(inside == active, "%s : poing hors de la zone de frappe sur %d image(s) active(s)" % [label, active - inside])
-				_check(contact > before + 0.03, "%s : le coup n'arrive pas à la première image active (%.2f m puis %.2f m)" % [label, before, contact])
+				_check(contact > before + 0.01, "%s : l'allonge maximale n'est pas atteinte à la première image active (%.2f m puis %.2f m)" % [label, before, contact])
 				if side > 0.0:
 					print("    COUP %s : %d/%d images actives avec le poing dans la zone ; allonge %.2f m à la fin de la préparation, %.2f m à l'impact" % [label, inside, active, before, contact])
 				await _frames(12)
