@@ -61,10 +61,10 @@ static func _tande() -> Dictionary:
 			]),
 		},
 		"costume": [
-			{"bone": &"belly", "z": 0.21, "thickness": 0.025, "color": Color(0.12, 0.076, 0.05),
+			{"bone": &"belly", "z": 0.21, "thickness": 0.025, "color": Color(0.11, 0.07, 0.047),
 				"polygon": PackedVector2Array([
-					Vector2(0.135, 1.045), Vector2(0.225, 0.735), Vector2(0.15, 0.7), Vector2(0.07, 0.745),
-					Vector2(0.0, 0.7), Vector2(-0.12, 0.71), Vector2(-0.19, 0.755), Vector2(-0.15, 1.045),
+					Vector2(0.13, 1.045), Vector2(0.255, 0.725), Vector2(0.16, 0.705), Vector2(0.075, 0.74),
+					Vector2(0.0, 0.705), Vector2(-0.12, 0.715), Vector2(-0.225, 0.735), Vector2(-0.15, 1.045),
 					Vector2(-0.01, 1.065),
 				])},
 			{"bone": &"upper_arm_n", "z": 0.2, "thickness": 0.03, "color": Color(0.13, 0.115, 0.1),

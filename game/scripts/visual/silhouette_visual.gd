@@ -180,7 +180,8 @@ func _build() -> void:
 		for p in piece["polygon"]:
 			local.append(_to_bone_local(piece["bone"], p))
 		var z := float(piece["z"]) - _bone_z(piece["bone"])
-		_add_mesh(_bone_nodes[piece["bone"]], _prism(local, piece["thickness"]), Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, z)), _material(piece["color"], true))
+		# Pas de liseré sur les pièces plates : vues de profil, leur tranche donnerait un pointillé lumineux.
+		_add_mesh(_bone_nodes[piece["bone"]], _prism(local, piece["thickness"]), Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, z)), _material(piece["color"], false))
 	var mark_material := _material(_profile["mark"], false)
 	for mark in _profile["marks"]:
 		var a := _to_bone_local(mark["bone"], mark["a"])
