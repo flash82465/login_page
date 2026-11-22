@@ -8,7 +8,7 @@
 # l'enregistre (sinon le lancement manuel est refusé tant que le fichier n'est pas sur main).
 # V0.6-A, étape 0 : la référence par défaut devient V0.5.0. Quand la référence les contient, les
 # pantins animés et le jeu complet sont aussi comparés pixel à pixel, en plus des capsules ; le jeu
-# complet est comparé hors de la zone du nouveau bouton « Profondeur » (seule différence attendue).
+# complet est comparé hors de la zone des boutons « Visuel » et « Profondeur » (seule différence attendue).
 name: Revue visuelle (planches)
 
 on:
@@ -38,9 +38,13 @@ env:
   GODOT_VERSION: "4.4.1"
   GODOT_RELEASE: "stable"
   REVIEW_BRANCH: "revue/mission-005"
-  # Zone du bouton « Profondeur » (390-890 × 140-186 sur l'écran de référence 1280 × 720), marge du
-  # filtre de réduction des images comprise : exclue de la comparaison du jeu complet avec V0.5.0.
-  JEU_MASK: "0.296,0.182,0.704,0.271"
+  # Zone des boutons « Visuel » et « Profondeur » (390-890 × 86-186 sur l'écran de référence
+  # 1280 × 720) plus une marge de 18 px (le filtre de réduction des images vidéo étale un bouton
+  # d'environ 9 px), soit 368-912 × 68-204 : exclue de la comparaison du jeu complet avec V0.5.0.
+  # Le bouton Visuel est inclus car les deux boutons partagent la police : l'ajout du second change
+  # d'une unité sur 255 un pixel du texte du premier (mesuré en local, étape 0). Tout le reste de
+  # l'écran (combat, barres de vie, chronomètre, commandes tactiles) reste comparé au pixel près.
+  JEU_MASK: "0.2875,0.0944,0.7125,0.2834"
 
 jobs:
   planches:
@@ -194,7 +198,7 @@ jobs:
             REF_ARGS+=(--extra "Pantins animés : équivalence avec::$PANTINS_DIR::out/reference-pantins")
           fi
           if [ "$REFERENCE" != "aucune" ] && [ "${REF_JEU:-non}" = oui ] && [ "$GENERATION" = integration ]; then
-            REF_ARGS+=(--extra "Jeu complet, hors zone du bouton Profondeur : équivalence avec::out/actuel::out/reference-jeu::$JEU_MASK")
+            REF_ARGS+=(--extra "Jeu complet, hors zone des boutons Visuel et Profondeur : équivalence avec::out/actuel::out/reference-jeu::$JEU_MASK")
           fi
           python3 .github/scripts/visual_review.py --current out/actuel "${REF_ARGS[@]}" \
             --review revue --step "$STEP" --title "$TITLE" --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" \

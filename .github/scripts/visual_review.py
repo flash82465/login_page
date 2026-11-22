@@ -7,6 +7,7 @@ branche de revue (qui ne contient que des images et ces pages).
 """
 import argparse
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -29,7 +30,7 @@ def blank(img: Image.Image, mask) -> Image.Image:
     if mask is None:
         return img
     w, h = img.size
-    box = (int(mask[0] * w), int(mask[1] * h), int(round(mask[2] * w)), int(round(mask[3] * h)))
+    box = (math.floor(mask[0] * w), math.floor(mask[1] * h), math.ceil(mask[2] * w), math.ceil(mask[3] * h))
     img = img.copy()
     img.paste((0, 0, 0), box)
     return img
