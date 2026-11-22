@@ -1,11 +1,11 @@
 ## V0.6-A étape 0 - référence visuelle V0.5.0 (capsules, pantins, jeu complet)
 
-- Code capturé : [`d1d8c0e`](https://github.com/flash82465/login_page/commit/d1d8c0e52c76be41220aa0b8f9f42397786a0597) (branche `godot/android-first`)
+- Code capturé : [`1fb22a2`](https://github.com/flash82465/login_page/commit/1fb22a2f820f09d9d0f38130a30d52f2437bdf65) (branche `godot/android-first`)
 - Rendu : Vulkan (llvmpipe (LLVM 20.1.2, 256 bits)), 1920 × 1080, 60 images/s fixes, interface masquée
 - **Repli capsule : équivalence avec `version/v0.5.0` : ✅ identique au pixel près sur 207 images sur 207**
 - **Pantins animés : équivalence avec `version/v0.5.0` : ✅ identique au pixel près sur 712 images sur 712**
-- **Jeu complet, hors zone du bouton Profondeur : équivalence avec `version/v0.5.0` : ✅ identique au pixel près sur 420 images sur 420** (zone exclue : x 0.296-0.704, y 0.182-0.271 de l'image)
-- Exécution : [journal et artefact](https://github.com/flash82465/login_page/actions/runs/45037687056)
+- **Jeu complet, hors zone des boutons Visuel et Profondeur : équivalence avec `version/v0.5.0` : ✅ identique au pixel près sur 420 images sur 420** (zone exclue : x 0.287-0.713, y 0.094-0.283 de l'image)
+- Exécution : [journal et artefact](https://github.com/flash82465/login_page/actions/runs/45039143410)
 
 Touchez une image pour l'ouvrir en grand, puis zoomez.
 
