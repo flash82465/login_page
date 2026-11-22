@@ -931,6 +931,8 @@ func _capture_integration() -> void:
 	add_child(game)
 	await _steps(30)
 	_save_screen("jeu-1-demarrage.jpg", "Le jeu au démarrage : pantins animés par défaut, bouton Visuel sous le chronomètre")
+	if not _check_toggle_layout(game):
+		return
 	# Pour les captures, Tandé est piloté par une IA de démonstration (en jeu, c'est vous).
 	_drive_with_ai(game.match_scene, ai_script, 11)
 	await _steps(240)
@@ -982,3 +984,43 @@ func _capture_integration() -> void:
 		"title": "Jeu intégré : 5 s avec les pantins, toucher sur le bouton Visuel, 5 s avec les capsules"})
 	_manifest["sequences"].append({"dir": "jeu-integre-video", "fps": 30, "frames": video, "format": "mp4",
 		"title": "La même séquence en vidéo (30 images/s)"})
+	await _capture_depth_toggle(game_scene, ai_script, settings)
+
+
+## V0.6-A, étape 0 : dans le rendu réel (vraie police), les boutons « Visuel » et « Profondeur » ne
+## se chevauchent pas et restent dans l'écran. Sans bouton Profondeur (version de référence), rien
+## n'est vérifié : la capture de référence reste celle de V0.5.0.
+func _check_toggle_layout(game) -> bool:
+	var depth = game.match_scene.get_node_or_null("Interface/DepthToggle")
+	if depth == null:
+		return true
+	var visual = game.match_scene.get_node("Interface/VisualToggle")
+	var d_rect: Rect2 = depth.button().get_global_rect()
+	var v_rect: Rect2 = visual.button().get_global_rect()
+	print("CAPTURE boutons (rendu réel) : Visuel %s ; Profondeur %s" % [v_rect, d_rect])
+	if d_rect.intersects(v_rect) or not get_viewport().get_visible_rect().encloses(d_rect):
+		_fail("boutons Visuel et Profondeur qui se chevauchent ou sortent de l'écran : %s / %s" % [v_rect, d_rect])
+		return false
+	return true
+
+
+## Planches du bouton « Profondeur » (ergonomie) : désactivé au démarrage, puis activé par un
+## toucher (combat neuf, encore sans effet à l'étape 0). Prises après les séquences comparées.
+func _capture_depth_toggle(game_scene: PackedScene, ai_script: Script, settings: Script) -> void:
+	if not ResourceLoader.exists("res://scenes/interface/depth_toggle.tscn"):
+		return
+	settings.clear()
+	var game = game_scene.instantiate()
+	add_child(game)
+	await _steps(10)
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	await _steps(180)
+	_save_screen("jeu-5-profondeur-desactivee.jpg", "Bouton Profondeur sous le bouton Visuel : désactivé par défaut")
+	game.match_scene.get_node("Interface/DepthToggle").button().pressed.emit()
+	await _steps(4)
+	_drive_with_ai(game.match_scene, ai_script, 11)
+	await _steps(180)
+	_save_screen("jeu-6-profondeur-activee.jpg", "Après un toucher : option activée (enregistrée), combat neuf ; étape 0 : encore sans effet sur le combat")
+	game.queue_free()
+	settings.clear()
+	await _steps(2)

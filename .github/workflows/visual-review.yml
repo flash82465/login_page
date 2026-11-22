@@ -6,6 +6,9 @@
 # n'est jamais modifiée). Ne compile aucun APK et ne touche à aucune version.
 # Lancement manuel ; il s'exécute aussi une fois quand ce fichier change, pour que GitHub
 # l'enregistre (sinon le lancement manuel est refusé tant que le fichier n'est pas sur main).
+# V0.6-A, étape 0 : la référence par défaut devient V0.5.0. Quand la référence les contient, les
+# pantins animés et le jeu complet sont aussi comparés pixel à pixel, en plus des capsules ; le jeu
+# complet est comparé hors de la zone du nouveau bouton « Profondeur » (seule différence attendue).
 name: Revue visuelle (planches)
 
 on:
@@ -13,16 +16,16 @@ on:
     inputs:
       step:
         description: "Dossier de l'étape sur la branche de revue (lettres, chiffres, tirets)"
-        default: "etape-1-capsule"
+        default: "v06-etape-0-reference-v050"
       title:
         description: "Titre affiché sur les planches et la page"
-        default: "Étape 1 - génération visuelle capsule (v0.1 à v0.4.1)"
+        default: "V0.6-A étape 0 - référence visuelle V0.5.0 (capsules, pantins, jeu complet)"
       reference:
         description: "Version de référence pour la comparaison pixel à pixel (« aucune » pour ne pas comparer)"
-        default: "version/v0.4.1"
+        default: "version/v0.5.0"
       generation:
-        description: "À présenter : capsule, silhouette (poses), animations ou integration (le jeu complet) ; la capsule reste comparée à la référence"
-        default: "capsule"
+        description: "À présenter : capsule, silhouette (poses), animations ou integration (le jeu complet) ; capsules et pantins restent comparés à la référence"
+        default: "integration"
   push:
     branches: ["godot/android-first"]
     paths: [".github/workflows/visual-review.yml"]
@@ -35,6 +38,9 @@ env:
   GODOT_VERSION: "4.4.1"
   GODOT_RELEASE: "stable"
   REVIEW_BRANCH: "revue/mission-005"
+  # Zone du bouton « Profondeur » (390-890 × 140-186 sur l'écran de référence 1280 × 720), marge du
+  # filtre de réduction des images comprise : exclue de la comparaison du jeu complet avec V0.5.0.
+  JEU_MASK: "0.296,0.182,0.704,0.271"
 
 jobs:
   planches:
@@ -43,10 +49,10 @@ jobs:
     permissions:
       contents: write
     env:
-      STEP: ${{ github.event.inputs.step || 'etape-1-capsule' }}
-      TITLE: ${{ github.event.inputs.title || 'Étape 1 - génération visuelle capsule (v0.1 à v0.4.1)' }}
-      REFERENCE: ${{ github.event.inputs.reference || 'version/v0.4.1' }}
-      GENERATION: ${{ github.event.inputs.generation || 'capsule' }}
+      STEP: ${{ github.event.inputs.step || 'v06-etape-0-reference-v050' }}
+      TITLE: ${{ github.event.inputs.title || 'V0.6-A étape 0 - référence visuelle V0.5.0 (capsules, pantins, jeu complet)' }}
+      REFERENCE: ${{ github.event.inputs.reference || 'version/v0.5.0' }}
+      GENERATION: ${{ github.event.inputs.generation || 'integration' }}
     steps:
       - name: Récupérer le code à capturer
         uses: actions/checkout@v4
@@ -130,6 +136,40 @@ jobs:
             -- --out="$PWD/out/reference" --title="Référence $REFERENCE" 2>&1 | tee capture-reference.log
           grep -q "^CAPTURE OK" capture-reference.log
 
+      - name: Ce que la référence permet de comparer
+        if: env.REFERENCE != 'aucune'
+        run: |
+          if [ -f reference/game/assets/visual/generation_silhouette_v05.tres ]; then echo "REF_PANTINS=oui" >> "$GITHUB_ENV"; fi
+          if [ -f reference/game/scenes/main/game.tscn ]; then echo "REF_JEU=oui" >> "$GITHUB_ENV"; fi
+
+      - name: Capturer les pantins animés du code actuel (pour la comparaison)
+        if: env.REFERENCE != 'aucune' && env.REF_PANTINS == 'oui' && env.GENERATION != 'animations'
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/pantins" --title="Pantins animés" --generation=animations 2>&1 | tee capture-pantins.log
+          grep -q "^CAPTURE OK" capture-pantins.log
+          if grep -E "SCRIPT ERROR|Parse Error" capture-pantins.log; then exit 1; fi
+
+      - name: Capturer les pantins animés de la référence
+        if: env.REFERENCE != 'aucune' && env.REF_PANTINS == 'oui'
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path reference/game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/reference-pantins" --title="Pantins animés $REFERENCE" --generation=animations 2>&1 | tee capture-reference-pantins.log
+          grep -q "^CAPTURE OK" capture-reference-pantins.log
+
+      - name: Capturer le jeu complet de la référence
+        if: env.REFERENCE != 'aucune' && env.REF_JEU == 'oui' && env.GENERATION == 'integration'
+        run: |
+          set -o pipefail
+          timeout 1200 xvfb-run -a -s "-screen 0 1920x1080x24" godot --path reference/game --resolution 1920x1080 \
+            --fixed-fps 60 --audio-driver Dummy res://tests/capture/capture_bench.tscn \
+            -- --out="$PWD/out/reference-jeu" --title="Jeu complet $REFERENCE" --generation=integration 2>&1 | tee capture-reference-jeu.log
+          grep -q "^CAPTURE OK" capture-reference-jeu.log
+
       - name: Préparer la branche de revue
         run: |
           set -euo pipefail
@@ -148,6 +188,13 @@ jobs:
           if [ "$REFERENCE" != "aucune" ]; then REF_ARGS=(--reference-dir out/reference --reference "$REFERENCE"); fi
           if [ "$GENERATION" != "capsule" ] && [ "$REFERENCE" != "aucune" ]; then
             REF_ARGS+=(--compare-dir out/capsule --compare-label "Repli capsule : équivalence avec")
+          fi
+          if [ "$REFERENCE" != "aucune" ] && [ "${REF_PANTINS:-non}" = oui ]; then
+            PANTINS_DIR=out/pantins; [ "$GENERATION" = animations ] && PANTINS_DIR=out/actuel
+            REF_ARGS+=(--extra "Pantins animés : équivalence avec::$PANTINS_DIR::out/reference-pantins")
+          fi
+          if [ "$REFERENCE" != "aucune" ] && [ "${REF_JEU:-non}" = oui ] && [ "$GENERATION" = integration ]; then
+            REF_ARGS+=(--extra "Jeu complet, hors zone du bouton Profondeur : équivalence avec::out/actuel::out/reference-jeu::$JEU_MASK")
           fi
           python3 .github/scripts/visual_review.py --current out/actuel "${REF_ARGS[@]}" \
             --review revue --step "$STEP" --title "$TITLE" --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME" \
@@ -179,5 +226,5 @@ jobs:
       - name: Vérifier l'équivalence avec la référence
         if: env.REFERENCE != 'aucune'
         run: |
-          python3 -c "import json,sys; r=json.load(open('out/resultat.json'))['comparison']; sys.exit(0 if r['identical'] else 1)" \
+          python3 -c "import json,sys; r=json.load(open('out/resultat.json')); sys.exit(0 if r['all_identical'] else 1)" \
             || { echo "::error::Le rendu diffère de la référence $REFERENCE (détail sur la page de revue)"; exit 1; }

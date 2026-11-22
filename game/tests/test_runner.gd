@@ -60,6 +60,12 @@ func _ready() -> void:
 	await _test_silhouette_walk_feet_planted()
 	# Mission 006 — intégration jouable
 	await _test_game_starts_with_pantins_and_toggles()
+	# Mission 006 / V0.6-A, étape 0 — option « Profondeur » (désactivée par défaut, sans effet)
+	await _test_depth_setting_defaults_and_invalid_values()
+	await _test_depth_setting_saved_alongside_visual()
+	await _test_depth_toggle_switches_and_restarts()
+	await _test_depth_option_has_no_effect_at_step_0()
+	await _test_place_xz_tool_and_v05_depth_lock()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -1224,4 +1230,246 @@ func _test_game_starts_with_pantins_and_toggles() -> void:
 	again.queue_free()
 	VisualSettings.clear()
 	await _frames(2)
+	_end()
+
+
+# --- Mission 006 / V0.6-A, étape 0 : option « Profondeur » ----------------------------------
+# L'option est désactivée par défaut et, à cette étape, aucun code de combat ne la lit : ces tests
+# vérifient le réglage, son bouton et l'outil de placement en X et Z, sans rien changer au combat.
+
+const AI_SCRIPT := preload("res://scripts/ai/ai_controller.gd")
+
+
+## Place un combattant en X et en profondeur (Z), à l'arrêt (outil des tests de la V0.6).
+func _place_xz(fighter: Fighter, x: float, z: float) -> void:
+	fighter.global_position = Vector3(x, 0.0, z)
+	fighter.velocity = Vector3.ZERO
+
+
+func _write_config(text: String) -> void:
+	var file := FileAccess.open(DepthSettings.CONFIG_PATH, FileAccess.WRITE)
+	file.store_string(text)
+	file.close()
+
+
+func _test_depth_setting_defaults_and_invalid_values() -> void:
+	_begin("Profondeur : désactivée sans fichier, sans valeur, avec une valeur invalide ou un fichier illisible ; jamais activée au démarrage")
+	VisualSettings.clear()
+	_check(not DepthSettings.load_enabled(), "sans fichier de réglages, l'option n'est pas désactivée")
+	VisualSettings.save_choice(&"capsules")
+	_check(not DepthSettings.load_enabled(), "fichier sans valeur Profondeur : l'option n'est pas désactivée")
+	for raw in ["\"true\"", "1", "\"oui\"", "[true]", "null"]:
+		_write_config("[combat]\nprofondeur=%s\n" % raw)
+		_check(not DepthSettings.load_enabled(), "valeur invalide %s : l'option n'est pas désactivée" % raw)
+	print("    (l'erreur « ConfigFile parse error » qui suit est attendue : fichier volontairement illisible)")
+	_write_config("ceci n'est pas un fichier de réglages [[[ = =\n")
+	_check(not DepthSettings.load_enabled(), "fichier illisible : l'option n'est pas désactivée")
+	# Démarrage du vrai jeu sans réglage : option désactivée dans le point d'entrée et dans le combat.
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	_check(not game.depth_enabled and not game.match_scene.depth_enabled, "l'option est active au démarrage du jeu")
+	var toggle := game.match_scene.get_node_or_null("Interface/DepthToggle") as DepthToggle
+	_check(toggle != null and not toggle.enabled and toggle.button().text.contains("désactivée"), "le bouton n'indique pas « désactivée » au démarrage")
+	_check(not FileAccess.file_exists(DepthSettings.CONFIG_PATH), "le démarrage écrit un réglage sans action du joueur")
+	game.queue_free()
+	await _frames(2)
+	_end()
+
+
+func _test_depth_setting_saved_alongside_visual() -> void:
+	_begin("Profondeur : le choix est enregistré et relu ; il coexiste avec le choix du visuel sans l'écraser, et inversement")
+	VisualSettings.clear()
+	DepthSettings.save_enabled(true)
+	_check(DepthSettings.load_enabled(), "activation non relue")
+	_check(VisualSettings.load_choice() == &"pantins", "enregistrer la profondeur modifie le visuel")
+	VisualSettings.save_choice(&"capsules")
+	_check(DepthSettings.load_enabled(), "enregistrer le visuel efface la profondeur")
+	_check(VisualSettings.load_choice() == &"capsules", "choix du visuel non relu")
+	DepthSettings.save_enabled(false)
+	_check(not DepthSettings.load_enabled(), "désactivation non relue")
+	_check(VisualSettings.load_choice() == &"capsules", "désactiver la profondeur modifie le visuel")
+	DepthSettings.save_enabled(true)
+	DepthSettings.clear()
+	_check(not DepthSettings.load_enabled(), "après effacement, l'option n'est pas revenue à désactivée")
+	_check(VisualSettings.load_choice() == &"capsules", "effacer la profondeur efface aussi le visuel")
+	VisualSettings.clear()
+	_end()
+
+
+func _touch_rect(button: TouchScreenButton) -> Rect2:
+	return button.get_global_transform() * Rect2(Vector2.ZERO, button.texture_normal.get_size())
+
+
+func _label_width(text: String) -> float:
+	var probe := Button.new()
+	probe.add_theme_font_size_override(&"font_size", 20)
+	probe.text = text
+	var width := probe.get_combined_minimum_size().x
+	probe.free()
+	return width
+
+
+func _test_depth_toggle_switches_and_restarts() -> void:
+	_begin("Profondeur : bouton sous « Visuel », sans chevauchement ; un 2e doigt (flèche tenue) l'active, combat neuf, choix conservé au relancement, indépendant du visuel")
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var m = game.match_scene
+	var depth := m.get_node_or_null("Interface/DepthToggle") as DepthToggle
+	var visual := m.get_node_or_null("Interface/VisualToggle") as VisualToggle
+	_check(depth != null and visual != null, "bouton Profondeur ou Visuel absent")
+	if depth != null and visual != null:
+		# Zones déclarées des boutons (celles du rendu réel ; sans affichage, la police de secours
+		# agrandit les boutons, d'où la vérification du rendu réel dans la revue visuelle).
+		var d_rect := depth.get_global_rect()
+		var v_rect := visual.get_global_rect()
+		_check(d_rect.position.y >= v_rect.end.y and absf(d_rect.get_center().x - v_rect.get_center().x) < 1.0,
+			"le bouton Profondeur n'est pas centré sous le bouton Visuel")
+		_check(not d_rect.intersects(v_rect), "les boutons Visuel et Profondeur se chevauchent")
+		_check(d_rect.size == v_rect.size, "les deux boutons n'ont pas la même taille")
+		_check(Rect2(Vector2.ZERO, Vector2(1280, 720)).encloses(d_rect), "le bouton Profondeur dépasse de l'écran de référence 1280 × 720")
+		_check(not d_rect.intersects((m.get_node("Interface/HUD/TopBar") as Control).get_global_rect()), "le bouton recouvre la barre de vie")
+		for path in ["LeftPad/MoveLeft", "LeftPad/MoveRight", "RightPad/Block", "RightPad/LightAttack", "RightPad/HeavyAttack", "RightPad/Dodge"]:
+			var b := m.get_node("Interface/TouchControls/" + path) as TouchScreenButton
+			_check(not d_rect.intersects(_touch_rect(b)), "le bouton Profondeur recouvre la commande %s" % path)
+		# Texte : jamais plus large que le plus long texte du bouton Visuel (qui tient dans le rendu réel).
+		var widest := 0.0
+		for label in VisualToggle.LABELS.values():
+			widest = maxf(widest, _label_width(label))
+		for value in [false, true]:
+			_check(_label_width(DepthToggle.LABELS[value]) <= widest, "texte plus long que celui du bouton Visuel : « %s »" % DepthToggle.LABELS[value])
+		var arrow: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
+		var arrow_position := _button_center(arrow)  # le bouton disparaît avec l'ancien combat
+		_touch(0, arrow_position, true)
+		await _frames(2)
+		var center := _control_center(depth.button())
+		_touch(1, center, true)
+		await _frames(1)
+		_touch(1, center, false)
+		await _frames(3)
+		_touch(0, arrow_position, false)
+		await _frames(10)
+	m = game.match_scene
+	_check(m.depth_enabled and game.depth_enabled, "le bouton n'active pas l'option")
+	_check(DepthSettings.load_enabled(), "activation non enregistrée")
+	_check(absf(m.fighter_a.velocity.x) < 0.05 and m.fighter_a.state == Fighter.State.IDLE, "après la bascule, un déplacement reste bloqué")
+	_check(m.fighter_a.health == m.fighter_a.max_health and not m.match_over, "la bascule ne relance pas un combat neuf")
+	_check(m.fighter_a.get_node("Visual") is SilhouetteVisual and VisualSettings.load_choice() == &"pantins", "la bascule Profondeur change le visuel")
+	_check((m.get_node("Interface/DepthToggle") as DepthToggle).button().text.contains("activée,"), "le bouton n'indique pas « activée »")
+	game.queue_free()
+	await _frames(2)
+	var again = GAME_SCENE.instantiate()
+	add_child(again)
+	await _frames(3)
+	m = again.match_scene
+	_check(m.depth_enabled, "le choix « activée » n'est pas conservé au relancement")
+	(m.get_node("Interface/VisualToggle") as VisualToggle).button().pressed.emit()
+	await _frames(3)
+	m = again.match_scene
+	_check(m.fighter_a.get_node("Visual") is CapsuleVisual and m.depth_enabled, "changer de visuel désactive la profondeur")
+	(m.get_node("Interface/DepthToggle") as DepthToggle).button().pressed.emit()
+	await _frames(3)
+	m = again.match_scene
+	_check(not m.depth_enabled and not DepthSettings.load_enabled(), "désactivation impossible ou non enregistrée")
+	_check(m.fighter_a.get_node("Visual") is CapsuleVisual, "désactiver la profondeur change le visuel")
+	again.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
+	_end()
+
+
+## Combat enregistré frame par frame (positions et vitesses en X, Y, Z, état, vie, orientation) :
+## une séquence scriptée puis un combat IA contre IA, avec l'option Profondeur donnée.
+func _record_depth_fight(depth: bool) -> PackedStringArray:
+	var trace := PackedStringArray()
+	for part in ["script", "ia"]:
+		var m = MAIN_SCENE.instantiate()
+		if _generation != null:
+			_generation.apply_to(m)
+		m.depth_enabled = depth
+		add_child(m)
+		await _frames(1)
+		var a: Fighter = m.fighter_a
+		var b: Fighter = m.fighter_b
+		var ca = null
+		var cb = null
+		if part == "script":
+			ca = ScriptedController.new()
+			m.add_child(ca)
+			a.controller = ca
+			cb = ScriptedController.new()
+			m.add_child(cb)
+			b.controller = cb
+			_place(a, -1.4)
+			_place(b, 1.4)
+		else:
+			var ai = AI_SCRIPT.new()
+			ai.rng_seed = 7
+			m.add_child(ai)
+			ai.reset()
+			a.controller = ai
+		for frame in 600:
+			if part == "script":
+				match frame:
+					5: ca.move_axis = 1.0
+					25: ca.move_axis = 0.0
+					30: ca.press_light()
+					70: cb.press_heavy()
+					72: ca.block = true
+					150: ca.block = false
+					160: cb.move_axis = -1.0
+					200: cb.move_axis = 0.0
+					205: ca.press_dodge()
+					240: cb.press_light()
+					241: ca.press_light()
+					300: ca.move_axis = -1.0
+					420: ca.move_axis = 1.0
+					520: ca.move_axis = 0.0
+					530: ca.press_heavy()
+			await _frames(1)
+			var line := "%s %d" % [part, frame]
+			for f: Fighter in [a, b]:
+				line += " | %d %d %.6f %.6f %.6f %.6f %.6f %.6f %.4f %.1f %.6f" % [f.state, f.get_state_frame(),
+					f.global_position.x, f.global_position.y, f.global_position.z, f.velocity.x, f.velocity.y, f.velocity.z,
+					f.health, f.facing, f.rotation.y]
+			trace.append(line + " | %s" % m.match_over)
+		await _close(m)
+	return trace
+
+
+func _test_depth_option_has_no_effect_at_step_0() -> void:
+	_begin("Étape 0 : l'option Profondeur ne change encore rien au combat (séquence scriptée et IA contre IA identiques, frame par frame)")
+	var off: PackedStringArray = await _record_depth_fight(false)
+	var on: PackedStringArray = await _record_depth_fight(true)
+	var first := -1
+	for i in mini(off.size(), on.size()):
+		if off[i] != on[i]:
+			first = i
+			break
+	_check(off.size() == on.size() and off.size() == 1200 and first == -1,
+		"première différence à la ligne %d : « %s » / « %s »" % [first, off[maxi(first, 0)], on[maxi(first, 0)]])
+	print("    PROFONDEUR (étape 0) : %d frames comparées, %s" % [off.size(), "identiques" if first == -1 else "différentes"])
+	_end()
+
+
+func _test_place_xz_tool_and_v05_depth_lock() -> void:
+	_begin("Outil de placement X/Z : position exacte ; option désactivée, Z est ramené à 0 dès la frame suivante (couloir de V0.5 intact)")
+	var m = await _new_match(true, true)
+	var a: Fighter = m.fighter_a
+	var b: Fighter = m.fighter_b
+	_check(not m.depth_enabled, "option active dans une scène de combat neuve")
+	_place_xz(a, -1.25, 0.8)
+	_place_xz(b, 1.5, -0.6)
+	_check(a.global_position.is_equal_approx(Vector3(-1.25, 0.0, 0.8)) and b.global_position.is_equal_approx(Vector3(1.5, 0.0, -0.6)),
+		"placement en X et Z inexact")
+	_check(a.velocity == Vector3.ZERO and b.velocity == Vector3.ZERO, "le placement ne remet pas la vitesse à zéro")
+	await _frames(1)
+	_check(a.global_position.z == 0.0 and b.global_position.z == 0.0, "Z n'est pas ramené à 0 (z = %.3f / %.3f)" % [a.global_position.z, b.global_position.z])
+	_check(is_equal_approx(a.global_position.x, -1.25) and is_equal_approx(b.global_position.x, 1.5), "X modifié par le retour en Z = 0")
+	await _frames(30)
+	_check(a.global_position.z == 0.0 and b.global_position.z == 0.0 and a.velocity.z == 0.0, "un combattant quitte Z = 0")
+	await _close(m)
 	_end()

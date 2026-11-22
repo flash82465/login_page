@@ -108,6 +108,39 @@ jobs:
           grep -q "^TESTS OK" gameplay-tests-pantins.log
           if grep -E "SCRIPT ERROR|Parse Error" gameplay-tests-pantins.log; then exit 1; fi
 
+      # V0.6-A, étape 0 : tant que l'option « Profondeur » est désactivée, le combat doit rester
+      # exactement celui de V0.5.0. La même trace (états, positions, vitesses en X/Y/Z, vie,
+      # chronomètre, frame par frame) est produite sur le code actuel et sur une copie en lecture
+      # seule de version/v0.5.0 ; elles doivent être identiques au caractère près.
+      - name: Récupérer V0.5.0 en lecture seule (référence de la trace de combat)
+        uses: actions/checkout@v4
+        with:
+          ref: version/v0.5.0
+          path: reference
+          persist-credentials: false
+
+      - name: Trace de combat identique à V0.5.0 (option Profondeur désactivée)
+        run: |
+          set -o pipefail
+          mkdir -p reference/game/tests/trace
+          cp game/tests/trace/combat_trace.gd game/tests/trace/combat_trace.tscn reference/game/tests/trace/
+          godot --headless --path reference/game --import > import-reference.log 2>&1
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" import-reference.log; then exit 1; fi
+          timeout 300 godot --headless --path game --fixed-fps 60 res://tests/trace/combat_trace.tscn \
+            -- --out="$PWD/trace-combat-actuelle.txt" 2>&1 | tee trace-actuelle.log
+          timeout 300 godot --headless --path reference/game --fixed-fps 60 res://tests/trace/combat_trace.tscn \
+            -- --out="$PWD/trace-combat-v0.5.0.txt" 2>&1 | tee trace-v0.5.0.log
+          grep -q "^TRACE OK" trace-actuelle.log && grep -q "^TRACE OK" trace-v0.5.0.log
+          if grep -E "SCRIPT ERROR|Parse Error" trace-actuelle.log trace-v0.5.0.log; then exit 1; fi
+          if cmp -s trace-combat-actuelle.txt trace-combat-v0.5.0.txt; then
+            echo "TRACE IDENTIQUE À V0.5.0 : $(wc -l < trace-combat-actuelle.txt) frames, sha256 $(sha256sum < trace-combat-actuelle.txt | cut -c1-64)"
+          else
+            echo "::error::Le combat diffère de V0.5.0 (option Profondeur désactivée) ; premières différences :"
+            diff trace-combat-v0.5.0.txt trace-combat-actuelle.txt | head -20
+            exit 1
+          fi
+          rm -rf reference
+
       - name: Vérifier la règle des versions OKÉLUN (avant compilation)
         env:
           KS_B64: ${{ secrets.OKELUN_KEYSTORE_BASE64 }}
@@ -235,7 +268,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: godot-logs-${{ github.sha }}
-          path: "*.log"
+          path: |
+            *.log
+            trace-combat-*.txt
           if-no-files-found: ignore
 
   # Conserve des APK déjà distribués, octet pour octet, sans les recompiler : copie dans un

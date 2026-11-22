@@ -14,6 +14,10 @@ const ARENA_HALF_WIDTH := 8.15
 
 var match_over: bool = false
 var winner: Fighter = null
+## Option « Profondeur » (V0.6) : désactivée par défaut, réglée par le point d'entrée du jeu avant
+## le début du combat. Étape 0 : aucun code ne la lit encore ; le combat est strictement celui de
+## V0.5.0, que l'option soit activée ou non.
+var depth_enabled: bool = false
 
 ## Touches détectées pendant la frame, résolues ensemble après le passage des deux
 ## combattants : deux coups simultanés s'échangent (et peuvent finir en double K.O.),

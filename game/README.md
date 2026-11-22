@@ -7,7 +7,8 @@ Socle du premier prototype jouable d'OKÉLUN (version **0.5.0** : pantins animé
 - **Godot 4.4.1** (éditeur standard, pas la version .NET) : ouvrir `game/project.godot`, puis F5.
 - **Clavier (ordinateur)** : A/D ou flèches pour se déplacer, J attaque légère, K attaque lourde, L garde (maintenir), Espace esquive.
 - **Écran tactile** : flèches à gauche ; à droite, bouclier (garde), petit rond (attaque légère), grand rond (attaque lourde), double flèche (esquive).
-- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (30 tests, code de sortie 0 si tout passe ; ajouter `-- --generation=silhouette` pour rejouer tous les scénarios de jeu avec les pantins animés).
+- **Tests de gameplay** : `godot --headless --path game --fixed-fps 60 res://tests/test_runner.tscn` (35 tests, code de sortie 0 si tout passe ; ajouter `-- --generation=silhouette` pour rejouer tous les scénarios de jeu avec les pantins animés).
+- **Trace de combat** : `godot --headless --path game --fixed-fps 60 res://tests/trace/combat_trace.tscn -- --out=FICHIER` écrit l'état complet des deux combattants à chaque frame de combats déterministes ; la CI la compare, au caractère près, à celle de `version/v0.5.0` (V0.6-A, étape 0).
 - **Test de fumée** : `godot --headless --path game -- --smoke-test`.
 - **APK Android, versions et points de restauration** : voir [ANDROID_BUILD.md](ANDROID_BUILD.md).
 
@@ -23,15 +24,16 @@ game/
 │   ├── fighters/fighter.tscn combattant générique (corps, hurtbox, hitbox)
 │   ├── fighters/visuals/    générations visuelles (capsule_v04.tscn : v0.1 à v0.4.1)
 │   ├── arenas/arena_training.tscn  arène d'entraînement (sol, murs, lumière)
-│   └── interface/           hud.tscn + hud.gd, touch_controls.tscn
+│   └── interface/           hud.tscn + hud.gd, touch_controls.tscn, boutons « Visuel » et « Profondeur »
 ├── scripts/
 │   ├── combat/              Fighter, intentions, contrôleur joueur, hitbox, hurtbox, AttackData, match
 │   ├── damage/              DamageService (autoload, provisoire)
 │   ├── movement/            FighterMotor (inertie selon la masse)
 │   ├── camera/              FightCamera (cadrage des deux combattants)
 │   ├── ai/                  AIController (IA basique)
-│   └── visual/              FighterVisual (contrat des visuels), CapsuleVisual
-├── tests/                   tests de gameplay (test_runner) et banc de capture visuelle (capture/)
+│   ├── visual/              FighterVisual (contrat des visuels), CapsuleVisual
+│   └── settings/            DepthSettings (option « Profondeur », désactivée par défaut)
+├── tests/                   tests de gameplay (test_runner), banc de capture visuelle (capture/), trace de combat (trace/)
 └── assets/
     ├── ui/                  icônes des boutons tactiles
     └── data/attacks/        données des attaques légère et lourde
@@ -73,9 +75,11 @@ L'affichage d'un combattant est un composant séparé (`scripts/visual/fighter_v
 
 **Dans le jeu (mission 006)** : le point d'entrée `scenes/main/game.tscn` (`scripts/game_root.gd`) crée la scène de combat avec le visuel choisi : pantins animés par défaut, ou capsules historiques. Le bouton « Visuel », sous le chronomètre, passe de l'un à l'autre (n'importe quel doigt) et relance un combat neuf ; le choix est conservé entre deux lancements (`user://okelun.cfg`). La scène de combat `main.tscn` n'est pas modifiée.
 
+**Option « Profondeur » (V0.6-A, étape 0)** : réglage `scripts/settings/depth_settings.gd`, enregistré dans `user://okelun.cfg` (section `combat`) à côté du choix du visuel. **Désactivée par défaut** (sans fichier, sans valeur ou avec une valeur invalide) et jamais activée automatiquement. Le bouton « Profondeur », sous le bouton « Visuel », l'active ou la désactive (n'importe quel doigt) et relance un combat neuf. À l'étape 0, l'option est transmise au combat (`depth_enabled` de la scène de combat) mais **aucun code ne la lit encore** : le combat est strictement celui de V0.5.0, ce que vérifient les tests 31 à 35, la trace de combat comparée à V0.5.0 en CI et la revue visuelle (capsules, pantins et jeu complet comparés pixel à pixel à V0.5.0, le jeu complet hors de la zone du nouveau bouton). Les déplacements en profondeur commencent à l'étape 1, après validation.
+
 Une génération complète (visuel de chaque combattant et ambiance de l'arène) est décrite par une ressource `VisualGeneration` (`assets/visual/`). Les proportions, poses et costumes des silhouettes sont dans `scripts/visual/silhouette_profiles.gd`.
 
-**Banc de capture** (`tests/capture/`, exclu de l'APK) : rejoue des situations scriptées, photographie le vrai rendu et assemble des planches et des GIF lisibles sur téléphone. Le workflow manuel « Revue visuelle (planches) » (`.github/workflows/visual-review.yml`) les publie sur la branche `revue/mission-005` (images et pages uniquement) et peut comparer chaque image, pixel à pixel, au rendu d'une version de référence.
+**Banc de capture** (`tests/capture/`, exclu de l'APK) : rejoue des situations scriptées, photographie le vrai rendu et assemble des planches et des GIF lisibles sur téléphone. Le workflow manuel « Revue visuelle (planches) » (`.github/workflows/visual-review.yml`) les publie sur la branche `revue/mission-005` (images et pages uniquement) et peut comparer chaque image, pixel à pixel, au rendu d'une version de référence (par défaut `version/v0.5.0` depuis la V0.6-A : capsules, pantins animés et jeu complet).
 
 ## État réel (version 0.4.0, mission 004)
 
