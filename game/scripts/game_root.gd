@@ -11,6 +11,9 @@ extends Node
 const MAIN_SCENE := preload("res://scenes/main/main.tscn")
 const TOGGLE_SCENE := preload("res://scenes/interface/visual_toggle.tscn")
 const DEPTH_TOGGLE_SCENE := preload("res://scenes/interface/depth_toggle.tscn")
+## Après une bascule de la profondeur, le nouveau bouton ignore les touchers pendant 0,4 s
+## (24 images de logique à 60 Hz) : un double toucher ou un rebond du doigt ne l'annule plus.
+const DEPTH_SWITCH_GUARD_FRAMES := 24
 
 var match_scene: Node
 var choice: StringName = &""
@@ -21,7 +24,7 @@ func _ready() -> void:
 	_start(VisualSettings.load_choice(), DepthSettings.load_enabled())
 
 
-func _start(new_choice: StringName, new_depth: bool) -> void:
+func _start(new_choice: StringName, new_depth: bool, after_depth_switch: bool = false) -> void:
 	choice = new_choice
 	depth_enabled = new_depth
 	if match_scene != null:
@@ -36,6 +39,7 @@ func _start(new_choice: StringName, new_depth: bool) -> void:
 	m.get_node("Interface").add_child(toggle)
 	var depth_toggle := DEPTH_TOGGLE_SCENE.instantiate() as DepthToggle
 	depth_toggle.enabled = depth_enabled
+	depth_toggle.guard_frames = DEPTH_SWITCH_GUARD_FRAMES if after_depth_switch else 0
 	depth_toggle.depth_requested.connect(_on_depth_requested)
 	m.get_node("Interface").add_child(depth_toggle)
 	add_child(m)
@@ -49,4 +53,4 @@ func _on_choice_requested(new_choice: StringName) -> void:
 
 func _on_depth_requested(enabled: bool) -> void:
 	DepthSettings.save_enabled(enabled)
-	_start.call_deferred(choice, enabled)
+	_start.call_deferred(choice, enabled, true)

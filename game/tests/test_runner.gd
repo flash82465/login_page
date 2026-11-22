@@ -66,6 +66,9 @@ func _ready() -> void:
 	await _test_depth_toggle_switches_and_restarts()
 	await _test_depth_option_has_no_effect_at_step_0()
 	await _test_place_xz_tool_and_v05_depth_lock()
+	# Correctif de l'essai Android de l'étape 0 (bouton Profondeur au doigt)
+	await _test_depth_toggle_single_finger_tap()
+	await _test_depth_toggle_ignores_double_tap()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -1271,7 +1274,7 @@ func _test_depth_setting_defaults_and_invalid_values() -> void:
 	await _frames(3)
 	_check(not game.depth_enabled and not game.match_scene.depth_enabled, "l'option est active au démarrage du jeu")
 	var toggle := game.match_scene.get_node_or_null("Interface/DepthToggle") as DepthToggle
-	_check(toggle != null and not toggle.enabled and toggle.button().text.contains("désactivée"), "le bouton n'indique pas « désactivée » au démarrage")
+	_check(toggle != null and not toggle.enabled and toggle.button().text == DepthToggle.LABELS[false], "le bouton n'indique pas « Profondeur : NON » au démarrage")
 	_check(not FileAccess.file_exists(DepthSettings.CONFIG_PATH), "le démarrage écrit un réglage sans action du joueur")
 	game.queue_free()
 	await _frames(2)
@@ -1358,7 +1361,7 @@ func _test_depth_toggle_switches_and_restarts() -> void:
 	_check(absf(m.fighter_a.velocity.x) < 0.05 and m.fighter_a.state == Fighter.State.IDLE, "après la bascule, un déplacement reste bloqué")
 	_check(m.fighter_a.health == m.fighter_a.max_health and not m.match_over, "la bascule ne relance pas un combat neuf")
 	_check(m.fighter_a.get_node("Visual") is SilhouetteVisual and VisualSettings.load_choice() == &"pantins", "la bascule Profondeur change le visuel")
-	_check((m.get_node("Interface/DepthToggle") as DepthToggle).button().text.contains("activée,"), "le bouton n'indique pas « activée »")
+	_check((m.get_node("Interface/DepthToggle") as DepthToggle).button().text == DepthToggle.LABELS[true], "le bouton n'indique pas « Profondeur : OUI (à venir) »")
 	game.queue_free()
 	await _frames(2)
 	var again = GAME_SCENE.instantiate()
@@ -1472,4 +1475,67 @@ func _test_place_xz_tool_and_v05_depth_lock() -> void:
 	await _frames(30)
 	_check(a.global_position.z == 0.0 and b.global_position.z == 0.0 and a.velocity.z == 0.0, "un combattant quitte Z = 0")
 	await _close(m)
+	_end()
+
+
+
+# --- Tests 36 et 37 : correctif de l'essai Android de l'étape 0 (bouton « Profondeur ») -----
+
+## Toucher d'un seul doigt tel qu'Android le livre (appui, quelques images, relâchement) : c'est
+## le cas réel du téléphone, où Godot émule aussi un clic de souris (le test 33 utilisait un 2e
+## doigt, sans émulation).
+func _finger_tap(position: Vector2, hold_frames: int = 4) -> void:
+	_touch(0, position, true)
+	await _frames(hold_frames)
+	_touch(0, position, false)
+
+
+func _test_depth_toggle_single_finger_tap() -> void:
+	_begin("Profondeur au doigt seul (cas du téléphone) : bascule, nouveau texte immédiat, réglage enregistré et conservé au relancement")
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var before = game.match_scene
+	await _finger_tap(_control_center((before.get_node("Interface/DepthToggle") as DepthToggle).button()))
+	await _frames(2)
+	var m = game.match_scene
+	_check(m != before, "le combat n'est pas relancé")
+	_check(m.depth_enabled and DepthSettings.load_enabled(), "le toucher n'active pas l'option ou ne l'enregistre pas")
+	_check((m.get_node("Interface/DepthToggle") as DepthToggle).button().text == DepthToggle.LABELS[true], "le nouveau texte « Profondeur : OUI (à venir) » n'est pas affiché")
+	_check(m.fighter_a.get_node("Visual") is SilhouetteVisual, "le visuel a changé")
+	game.queue_free()
+	await _frames(2)
+	var again = GAME_SCENE.instantiate()
+	add_child(again)
+	await _frames(3)
+	_check(again.match_scene.depth_enabled, "le choix n'est pas conservé après relancement")
+	_check((again.match_scene.get_node("Interface/DepthToggle") as DepthToggle).button().text == DepthToggle.LABELS[true], "texte incorrect après relancement")
+	again.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
+	_end()
+
+
+func _test_depth_toggle_ignores_double_tap() -> void:
+	_begin("Profondeur : un second toucher juste après la bascule (double toucher, rebond du doigt) ne l'annule pas ; un toucher volontaire ensuite désactive")
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var center := _control_center((game.match_scene.get_node("Interface/DepthToggle") as DepthToggle).button())
+	await _finger_tap(center, 3)
+	await _frames(10)  # second toucher environ 0,2 s après le relâchement du premier
+	await _finger_tap(center, 3)
+	await _frames(4)
+	var m = game.match_scene
+	_check(m.depth_enabled and DepthSettings.load_enabled(), "le second toucher rapproché a annulé la bascule (option revenue à désactivée)")
+	_check((m.get_node("Interface/DepthToggle") as DepthToggle).button().text == DepthToggle.LABELS[true], "le texte est revenu à « Profondeur : NON »")
+	await _frames(30)  # plus tard, un toucher volontaire
+	await _finger_tap(_control_center((game.match_scene.get_node("Interface/DepthToggle") as DepthToggle).button()), 3)
+	await _frames(3)
+	_check(not game.match_scene.depth_enabled and not DepthSettings.load_enabled(), "un toucher volontaire plus tard ne désactive pas l'option")
+	game.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
 	_end()
