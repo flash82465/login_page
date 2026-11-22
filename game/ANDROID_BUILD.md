@@ -73,7 +73,7 @@ Aucune version n'est supprimée. Chaque version garde une branche `version/vX.Y.
 | 0.3.0 | mission 003 : premier combat jouable | branche `version/v0.3.0` (`961e110`) | « OKÉLUN » (`org.okelun.prototype`) | `okelun-v0.3.0-debug.apk` (et la compilation antérieure `okelun-mission003-6984db6-debug.apk`, même jeu) |
 | 0.4.0 | mission 004 : stabilisation | branche `version/v0.4.0` (`c5ae145`) | « OKÉLUN » (`org.okelun.prototype`) | `okelun-v0.4.0-debug.apk` |
 | 0.4.1 | 0.4.0 + règle des versions (identifiant, nom, signature stable) ; jeu identique à 0.4.0 ; version de référence de la mission 005, installée à côté de l'ancienne application et vérifiée sur téléphone | branche `version/v0.4.1` (`f7157dc`) | **« OKÉLUN V0.4.1 »** (`org.okelun.prototype.v0_4_1`) | `okelun-v0.4.1-debug.apk` |
-| 0.5.0 | mission 005 en cours : évolution visuelle des combattants | branche de travail `godot/android-first` | « OKÉLUN V0.5 » (`org.okelun.prototype.v0_5_0`), pas encore publiée | — |
+| 0.5.0 | missions 005-006 : pantins animés de Tandé et Mabé, bouton « Visuel » pour revenir aux capsules ; combat identique à 0.4.1 | branche `version/v0.5.0` | **« OKÉLUN V0.5 »** (`org.okelun.prototype.v0_5_0`) | `okelun-v0.5.0-debug.apk` |
 
 **Limite héritée, non corrigée pour ne pas modifier d'anciennes versions** : les APK antérieurs à 0.4.1 partagent l'identifiant `org.okelun.prototype` et ont chacun une clé de debug différente. Un seul d'entre eux peut être présent sur un téléphone. Celui qui est installé y reste ; ne pas installer l'APK 0.4.0 par-dessus (Android le refuserait). À partir de 0.4.1, toutes les versions s'installent côte à côte.
 

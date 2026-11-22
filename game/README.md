@@ -1,6 +1,6 @@
 # OKÉLUN — Prototype Godot 4 (Android first)
 
-Socle du premier prototype jouable d'OKÉLUN (version de travail **0.5.0**, mission 005 en cours ; dernière version publiée : **0.4.1**), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
+Socle du premier prototype jouable d'OKÉLUN (version **0.5.0** : pantins animés ou capsules historiques, au choix), avec Godot 4.4.1 et Android comme cible prioritaire. Ce dossier ne remplace ni ne modifie le prototype logique des dégâts (`damage-system/`, PR #1) ni la documentation (`docs/`).
 
 ## Ouvrir et lancer
 
