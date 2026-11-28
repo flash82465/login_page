@@ -78,6 +78,12 @@ func _ready() -> void:
 	await _test_depth_locked_when_disabled()
 	await _test_depth_spacing_disabled_vs_enabled()
 	await _test_depth_diagonal_normalization()
+	# Mission 010 / V0.6-A — contrôles tactiles de déplacement en profondeur (axe Z)
+	await _test_touch_depth_up_down_hold_release_and_limits()
+	await _test_touch_depth_diagonal_and_normalization()
+	await _test_touch_depth_multitouch_combat()
+	await _test_touch_depth_disabled_hides_and_preserves_layout()
+	await _test_touch_depth_toggle_integration()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -1854,5 +1860,279 @@ func _test_depth_diagonal_normalization() -> void:
 	_check(a_off.global_position.z == 0.0 and a_off.velocity.z == 0.0, "profondeur désactivée : Z non nul (%s, %s)" % [a_off.global_position, a_off.velocity])
 	await _close(m_off)
 	_end()
+
+
+# --- Tests 46 à 50 : Mission 010 (contrôles tactiles de déplacement en profondeur) -----------
+
+func _test_touch_depth_up_down_hold_release_and_limits() -> void:
+	_begin("Tactile profondeur (-Z / +Z) : pression maintenue, relâchement avec inertie, limites Z = ±1,5 m")
+	var m = await _new_depth_match(true, false, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -2.0, 0.0)
+	_place_xz(m.fighter_b, 2.5, 0.0)
+	var up: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var down: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveDown")
+	_check(up.visible and down.visible, "MoveUp et MoveDown ne sont pas visibles quand depth_enabled = true")
+
+	# 1. Pression maintenue sur MoveUp (-Z) puis relâchement avec inertie.
+	var up_pos := _button_center(up)
+	_touch(0, up_pos, true)
+	await _frames(10)
+	_check(up.is_pressed() and Input.is_action_pressed(&"move_up"), "MoveUp non activé par toucher")
+	var z_mid := a.global_position.z
+	await _frames(20)
+	var z_held := a.global_position.z
+	_check(z_mid < -0.05 and z_held < z_mid - 0.4, "déplacement continu vers -Z absent (%.3f -> %.3f)" % [z_mid, z_held])
+	_touch(0, up_pos, false)
+	await _frames(2)
+	_check(not Input.is_action_pressed(&"move_up"), "move_up reste actif après relâchement")
+	_check(a.velocity.z < -0.2 and a.velocity.z > -2.1, "décélération progressive absente après relâchement de MoveUp (vz = %.3f)" % a.velocity.z)
+	await _frames(25)
+	_check(absf(a.velocity.z) < 0.001 and a.state == Fighter.State.IDLE, "arrêt et retour IDLE incomplets après relâchement de MoveUp")
+	var z_stopped := a.global_position.z
+	_check(z_stopped < z_held, "inertie au relâchement non observée sur -Z")
+
+	# 2. Maintien prolongé vers -Z -> limite exacte Z = -1,5 m.
+	_touch(0, up_pos, true)
+	var min_z := z_stopped
+	for _i in 80:
+		await _frames(1)
+		min_z = minf(min_z, a.global_position.z)
+	_touch(0, up_pos, false)
+	await _frames(3)
+	_check(min_z >= -1.5001 and absf(a.global_position.z - (-1.5)) < 0.01, "limite tactile Z = -1,5 non respectée (z=%.4f, min=%.4f)" % [a.global_position.z, min_z])
+
+	# 3. Pression maintenue sur MoveDown (+Z) -> déplacement continu jusqu'à Z = +1,5 m puis relâchement.
+	var down_pos := _button_center(down)
+	_touch(0, down_pos, true)
+	await _frames(15)
+	_check(down.is_pressed() and Input.is_action_pressed(&"move_down"), "MoveDown non activé par toucher")
+	_check(a.global_position.z > -1.3, "MoveDown ne déplace pas vers +Z depuis -1,5 (z=%.3f)" % a.global_position.z)
+	var max_z := a.global_position.z
+	for _i in 110:
+		await _frames(1)
+		max_z = maxf(max_z, a.global_position.z)
+	_touch(0, down_pos, false)
+	await _frames(15)
+	_check(not Input.is_action_pressed(&"move_down"), "move_down reste actif après relâchement")
+	_check(max_z <= 1.5001 and absf(a.global_position.z - 1.5) < 0.01, "limite tactile Z = +1,5 non respectée (z=%.4f, max=%.4f)" % [a.global_position.z, max_z])
+	await _close(m)
+	_end()
+
+
+func _test_touch_depth_diagonal_and_normalization() -> void:
+	_begin("Tactile profondeur (X + Z et normalisation) : déplacement diagonal tactile normalisé (≈ 2,63 m/s ≤ 3,0 m/s) à 2 doigts et au pouce unique")
+	var expected_vx := 3.0 / sqrt(2.0)
+	var expected_vz := 2.2 / sqrt(2.0)
+	var expected_diag := Vector2(expected_vx, expected_vz).length()
+
+	var m = await _new_depth_match(true, false, true)
+	var a: Fighter = m.fighter_a
+	var right: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
+	var up: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var left: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var down: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveDown")
+
+	# 1. Diagonale tactile (+X, -Z) avec deux doigts (MoveRight + MoveUp).
+	_place_xz(a, -4.5, 1.0)
+	_place_xz(m.fighter_b, 5.0, 0.0)
+	var right_pos := _button_center(right)
+	var up_pos := _button_center(up)
+	_touch(0, right_pos, true)
+	_touch(1, up_pos, true)
+	var max_diag := 0.0
+	for _i in 35:
+		await _frames(1)
+		max_diag = maxf(max_diag, Vector2(a.velocity.x, a.velocity.z).length())
+	_check(a.global_position.x > -3.5 and a.global_position.z < 0.2, "déplacement diagonal tactile (+X, -Z) insuffisant : %s" % a.global_position)
+	_check(absf(a.velocity.x - expected_vx) < 0.03 and absf(a.velocity.z - (-expected_vz)) < 0.03,
+		"diagonale tactile non normalisée (vx=%.3f, vz=%.3f)" % [a.velocity.x, a.velocity.z])
+	_check(max_diag <= expected_diag + 0.02 and max_diag <= 3.0, "vitesse diagonale tactile excessive (%.3f m/s)" % max_diag)
+	_touch(0, right_pos, false)
+	_touch(1, up_pos, false)
+	await _frames(20)
+
+	# 2. Diagonale tactile (-X, +Z) au pouce unique dans la zone diagonale commune entre MoveLeft et MoveDown.
+	_place_xz(a, 2.5, -1.0)
+	var left_rect := _touch_rect(left)
+	var down_rect := _touch_rect(down)
+	var diag_zone := left_rect.intersection(down_rect)
+	_check(diag_zone.size.x >= 20.0 and diag_zone.size.y >= 20.0, "zone diagonale commune MoveLeft/MoveDown trop petite (%s)" % diag_zone)
+	var diag_pos := left.get_viewport().get_final_transform() * diag_zone.get_center()
+	_touch(0, diag_pos, true)
+	var max_diag_one := 0.0
+	for _i in 35:
+		await _frames(1)
+		max_diag_one = maxf(max_diag_one, Vector2(a.velocity.x, a.velocity.z).length())
+	_check(Input.is_action_pressed(&"move_left") and Input.is_action_pressed(&"move_down"), "un pouce dans la zone diagonale n'active pas move_left + move_down")
+	_check(a.global_position.x < 1.5 and a.global_position.z > -0.2, "diagonale au pouce unique (-X, +Z) insuffisante : %s" % a.global_position)
+	_check(max_diag_one <= expected_diag + 0.02 and max_diag_one <= 3.0, "vitesse diagonale au pouce unique excessive (%.3f m/s)" % max_diag_one)
+	_touch(0, diag_pos, false)
+	await _frames(5)
+	_check(not Input.is_action_pressed(&"move_left") and not Input.is_action_pressed(&"move_down"), "actions diagonales restées actives après relâchement")
+	await _close(m)
+	_end()
+
+
+func _test_touch_depth_multitouch_combat() -> void:
+	_begin("Tactile profondeur (multitouch combat) : déplacement Z + attaque légère, puis Z + garde, puis esquive, reprise propre")
+	var m = await _new_depth_match(true, false, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -2.5, 1.0)
+	_place_xz(m.fighter_b, 2.5, 0.0)
+	var up: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var down: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveDown")
+	var light: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/LightAttack")
+	var block: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/Block")
+	var dodge: TouchScreenButton = m.get_node("Interface/TouchControls/RightPad/Dodge")
+
+	# Déplacement -Z maintenu (doigt 0) + attaque légère (doigt 1).
+	var up_pos := _button_center(up)
+	_touch(0, up_pos, true)
+	await _frames(10)
+	await _tap(1, _button_center(light))
+	_check(a.current_attack_id == 1, "attaque légère ignorée pendant un déplacement tactile Z")
+	_check(Input.is_action_pressed(&"move_up"), "move_up relâché par le doigt d'attaque")
+	await _frames(25)
+	var z_after_attack := a.global_position.z
+	await _frames(15)
+	_check(a.global_position.z < z_after_attack - 0.2, "le déplacement -Z ne reprend pas après l'attaque (%.3f -> %.3f)" % [z_after_attack, a.global_position.z])
+	_touch(0, up_pos, false)
+	await _frames(5)
+
+	# Déplacement +Z maintenu (doigt 0) + garde maintenue (doigt 2) + reprise +Z au relâchement du bouclier.
+	var down_pos := _button_center(down)
+	_touch(0, down_pos, true)
+	await _frames(10)
+	_touch(2, _button_center(block), true)
+	await _frames(10)
+	_check(a.state == Fighter.State.BLOCK, "garde impossible en multitouch pendant un déplacement Z (état %s)" % a.state)
+	var z_guard := a.global_position.z
+	await _frames(15)
+	_check(absf(a.global_position.z - z_guard) < 0.1, "le combattant continue d'avancer en Z pendant la garde")
+	_touch(2, _button_center(block), false)
+	await _frames(15)
+	_check(a.state == Fighter.State.WALK and a.global_position.z > z_guard + 0.15, "le déplacement +Z ne reprend pas après relâchement de la garde")
+
+	# Esquive (doigt 1) pendant maintien de +Z.
+	await _tap(1, _button_center(dodge))
+	_check(a.state == Fighter.State.DODGE, "esquive impossible pendant un maintien tactile Z (état %s)" % a.state)
+	_touch(0, down_pos, false)
+	await _frames(5)
+	_check(not Input.is_action_pressed(&"move_down") and not Input.is_action_pressed(&"block"), "actions restées actives après fin du test multitouch Z")
+	await _close(m)
+	_end()
+
+
+func _test_touch_depth_disabled_hides_and_preserves_layout() -> void:
+	_begin("Tactile profondeur (non-régression UI) : masqué et inactif si Profondeur = NON (layout V0.5 exact) ; aucun chevauchement ni gêne de glissé si OUI")
+	# 1. Profondeur désactivée : MoveUp/MoveDown invisibles, toucher sans effet, positions V0.5.0 exactes.
+	var m_off = await _new_depth_match(false, false, true)
+	var a_off: Fighter = m_off.fighter_a
+	var left_pad_off: Control = m_off.get_node("Interface/TouchControls/LeftPad")
+	var left_off: TouchScreenButton = m_off.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var right_off: TouchScreenButton = m_off.get_node("Interface/TouchControls/LeftPad/MoveRight")
+	var up_off: TouchScreenButton = m_off.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var down_off: TouchScreenButton = m_off.get_node("Interface/TouchControls/LeftPad/MoveDown")
+	_check(not up_off.visible and not down_off.visible, "MoveUp ou MoveDown visible alors que depth_enabled = false")
+	_check(left_pad_off.offset_top == -200.0 and left_pad_off.offset_bottom == -32.0, "LeftPad déplacé alors que depth_enabled = false")
+	_check(left_off.position == Vector2(0, 24) and right_off.position == Vector2(150, 24), "MoveLeft ou MoveRight déplacé en mode V0.5")
+	_touch(0, _button_center(up_off), true)
+	await _frames(15)
+	_check(not Input.is_action_pressed(&"move_up") and a_off.global_position.z == 0.0 and a_off.velocity.z == 0.0,
+		"toucher la zone MoveUp agit malgré depth_enabled = false")
+	_touch(0, _button_center(up_off), false)
+	_touch(0, _button_center(down_off), true)
+	await _frames(15)
+	_check(not Input.is_action_pressed(&"move_down") and a_off.global_position.z == 0.0 and a_off.velocity.z == 0.0,
+		"toucher la zone MoveDown agit malgré depth_enabled = false")
+	_touch(0, _button_center(down_off), false)
+	await _close(m_off)
+
+	# 2. Profondeur activée : boutons dans le cadre 1280×720, sans chevauchement HUD/RightPad ni cercles, glissé gauche->droite préservé.
+	VisualSettings.clear()
+	DepthSettings.save_enabled(true)
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var m = game.match_scene
+	var viewport_rect := get_viewport().get_visible_rect()
+	var top_bar := (m.get_node("Interface/HUD/TopBar") as Control).get_global_rect()
+	var visual_rect := (m.get_node("Interface/VisualToggle") as Control).get_global_rect()
+	var depth_rect := (m.get_node("Interface/DepthToggle") as Control).get_global_rect()
+	var left_pad: Control = m.get_node("Interface/TouchControls/LeftPad")
+	var left: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveLeft")
+	var right: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveRight")
+	var up: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var down: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveDown")
+	for btn: TouchScreenButton in [left, right, up, down]:
+		var r := _touch_rect(btn)
+		_check(viewport_rect.encloses(r), "%s dépasse du viewport courant %s (%s)" % [btn.name, viewport_rect, r])
+		# Vérification également en hauteur de référence 720 px (LeftPad ancré en bas).
+		var y_top_720 := 720.0 + left_pad.offset_top + btn.position.y
+		var y_bot_720 := y_top_720 + btn.texture_normal.get_size().y
+		_check(y_top_720 > depth_rect.end.y and y_bot_720 <= 720.0,
+			"%s sort de la zone libre en 1280×720 (y = %.1f..%.1f)" % [btn.name, y_top_720, y_bot_720])
+		_check(not r.intersects(top_bar) and not r.intersects(visual_rect) and not r.intersects(depth_rect),
+			"%s chevauche le HUD ou les boutons de réglage (%s)" % [btn.name, r])
+		for right_path in ["RightPad/Block", "RightPad/LightAttack", "RightPad/HeavyAttack", "RightPad/Dodge"]:
+			var rb := m.get_node("Interface/TouchControls/" + right_path) as TouchScreenButton
+			_check(not r.intersects(_touch_rect(rb)), "%s chevauche %s" % [btn.name, right_path])
+	# Cercles visuels (rayon extérieur 56 px) séparés entre tous les boutons directionnels.
+	var pads: Array[TouchScreenButton] = [left, right, up, down]
+	for i in pads.size():
+		for j in range(i + 1, pads.size()):
+			var ci := _touch_rect(pads[i]).get_center()
+			var cj := _touch_rect(pads[j]).get_center()
+			_check(ci.distance_to(cj) >= 112.0, "cercles visuels de %s et %s trop proches (%.1f px)" % [pads[i].name, pads[j].name, ci.distance_to(cj)])
+	# Glissé horizontal gauche -> droite ne déclenche pas move_up ni move_down.
+	var from := _button_center(left)
+	var to := _button_center(right)
+	_touch(0, from, true)
+	await _frames(10)
+	_drag(0, from, to)
+	await _frames(5)
+	_check(Input.is_action_pressed(&"move_right") and not Input.is_action_pressed(&"move_left"), "glissé gauche->droite cassé en mode profondeur")
+	_check(not Input.is_action_pressed(&"move_up") and not Input.is_action_pressed(&"move_down"), "glissé gauche->droite a déclenché un bouton Z")
+	_touch(0, to, false)
+	await _frames(3)
+	game.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
+	_end()
+
+
+func _test_touch_depth_toggle_integration() -> void:
+	_begin("Tactile profondeur (bascule Profondeur) : cachés au démarrage, visibles et actifs après bascule OUI, recachés après bascule NON")
+	VisualSettings.clear()
+	var game = GAME_SCENE.instantiate()
+	add_child(game)
+	await _frames(3)
+	var m = game.match_scene
+	_check(not m.get_node("Interface/TouchControls/LeftPad/MoveUp").visible and not m.get_node("Interface/TouchControls/LeftPad/MoveDown").visible,
+		"boutons Z visibles au démarrage par défaut")
+	# Bascule vers Profondeur : OUI
+	await _finger_tap(_control_center((m.get_node("Interface/DepthToggle") as DepthToggle).button()), 3)
+	await _frames(3)
+	m = game.match_scene
+	var up: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveUp")
+	var down: TouchScreenButton = m.get_node("Interface/TouchControls/LeftPad/MoveDown")
+	_check(m.depth_enabled and up.visible and down.visible, "boutons Z absents après activation de Profondeur")
+	_touch(0, _button_center(up), true)
+	await _frames(15)
+	_check(m.fighter_a.global_position.z < -0.1, "MoveUp ne déplace pas en Z après activation via DepthToggle")
+	_touch(0, _button_center(up), false)
+	# Attendre la fin de la garde anti-double-tap (24 frames) puis désactiver.
+	await _frames(20)
+	await _finger_tap(_control_center((m.get_node("Interface/DepthToggle") as DepthToggle).button()), 3)
+	await _frames(3)
+	m = game.match_scene
+	_check(not m.depth_enabled and not m.get_node("Interface/TouchControls/LeftPad/MoveUp").visible and not m.get_node("Interface/TouchControls/LeftPad/MoveDown").visible,
+		"boutons Z restés visibles après désactivation de Profondeur")
+	game.queue_free()
+	VisualSettings.clear()
+	await _frames(2)
+	_end()
+
 
 

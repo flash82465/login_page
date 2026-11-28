@@ -1,11 +1,14 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
+[ext_resource type="Script" path="res://scenes/interface/touch_controls.gd" id="1_script"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_left.svg" id="1_left"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_right.svg" id="2_right"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_light.svg" id="3_light"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_heavy.svg" id="4_heavy"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_block.svg" id="5_block"]
 [ext_resource type="Texture2D" path="res://assets/ui/btn_dodge.svg" id="6_dodge"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_up.svg" id="7_up"]
+[ext_resource type="Texture2D" path="res://assets/ui/btn_down.svg" id="8_down"]
 
 [node name="TouchControls" type="Control"]
 layout_mode = 3
@@ -15,6 +18,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+script = ExtResource("1_script")
 
 [node name="LeftPad" type="Control" parent="."]
 layout_mode = 1
@@ -39,6 +43,20 @@ position = Vector2(150, 24)
 texture_normal = ExtResource("2_right")
 passby_press = true
 action = "move_right"
+
+[node name="MoveUp" type="TouchScreenButton" parent="LeftPad"]
+visible = false
+position = Vector2(75, -64)
+texture_normal = ExtResource("7_up")
+passby_press = true
+action = "move_up"
+
+[node name="MoveDown" type="TouchScreenButton" parent="LeftPad"]
+visible = false
+position = Vector2(75, 112)
+texture_normal = ExtResource("8_down")
+passby_press = true
+action = "move_down"
 
 [node name="RightPad" type="Control" parent="."]
 layout_mode = 1

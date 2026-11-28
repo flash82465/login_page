@@ -25,6 +25,8 @@ var depth_enabled: bool = false:
 			fighter_a.depth_enabled = value
 		if fighter_b != null:
 			fighter_b.depth_enabled = value
+		if touch_controls != null:
+			touch_controls.set_depth_enabled(value)
 
 ## Touches détectées pendant la frame, résolues ensemble après le passage des deux
 ## combattants : deux coups simultanés s'échangent (et peuvent finir en double K.O.),
@@ -39,6 +41,7 @@ var _start_distance: float = 0.0
 @onready var fighter_b: Fighter = $Fighters/FighterB
 @onready var camera: FightCamera = $FightCamera
 @onready var hud: Hud = $Interface/HUD
+@onready var touch_controls: TouchControls = $Interface/TouchControls
 @onready var result_overlay: ResultOverlay = $Interface/ResultOverlay
 
 
@@ -51,6 +54,7 @@ func _ready() -> void:
 	fighter_b.depth_enabled = depth_enabled
 	fighter_a.arena_half_depth = ARENA_HALF_DEPTH
 	fighter_b.arena_half_depth = ARENA_HALF_DEPTH
+	touch_controls.set_depth_enabled(depth_enabled)
 	fighter_a.controller = $Controllers/Player
 	fighter_b.controller = $Controllers/AI
 	camera.set_targets(fighter_a, fighter_b)
