@@ -43,6 +43,8 @@ var health: float = 0.0
 var state: State = State.IDLE
 var facing: float = 1.0  ## +1 = regarde vers +X, -1 = regarde vers -X.
 var input_enabled: bool = true
+var depth_enabled: bool = false
+var arena_half_depth: float = 1.5
 var current_attack: AttackData
 var current_attack_id: int = 0
 
@@ -130,12 +132,25 @@ func _physics_process(delta: float) -> void:
 			_process_stun(delta)
 		State.KO:
 			velocity.x = motor.compute_velocity_x(velocity.x, 0.0, delta, mass_kg)
+			if depth_enabled:
+				velocity.z = motor.compute_velocity_z(velocity.z, 0.0, delta, mass_kg)
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
-	velocity.z = 0.0
+	if not depth_enabled:
+		velocity.z = 0.0
 	move_and_slide()
-	global_position.z = 0.0
+	if depth_enabled:
+		if global_position.z < -arena_half_depth:
+			global_position.z = -arena_half_depth
+			if velocity.z < 0.0:
+				velocity.z = 0.0
+		elif global_position.z > arena_half_depth:
+			global_position.z = arena_half_depth
+			if velocity.z > 0.0:
+				velocity.z = 0.0
+	else:
+		global_position.z = 0.0
 	_update_visuals()
 
 
@@ -226,8 +241,14 @@ func _process_free(delta: float) -> void:
 	if _buffered_attack != null:
 		_start_attack(_buffered_attack)
 		return
-	velocity.x = motor.compute_velocity_x(velocity.x, _intent.move_axis, delta, mass_kg)
-	_enter(State.WALK if absf(velocity.x) > 0.05 else State.IDLE)
+	if depth_enabled:
+		var vel_xz := motor.compute_velocity_xz(Vector2(velocity.x, velocity.z), _intent.move_axis, _intent.depth_axis, delta, mass_kg)
+		velocity.x = vel_xz.x
+		velocity.z = vel_xz.y
+		_enter(State.WALK if absf(velocity.x) > 0.05 or absf(velocity.z) > 0.05 else State.IDLE)
+	else:
+		velocity.x = motor.compute_velocity_x(velocity.x, _intent.move_axis, delta, mass_kg)
+		_enter(State.WALK if absf(velocity.x) > 0.05 else State.IDLE)
 
 
 func _start_attack(attack: AttackData) -> void:
@@ -241,6 +262,8 @@ func _start_attack(attack: AttackData) -> void:
 
 func _process_attack(delta: float) -> void:
 	velocity.x = motor.compute_velocity_x(velocity.x, 0.0, delta, mass_kg)
+	if depth_enabled:
+		velocity.z = motor.compute_velocity_z(velocity.z, 0.0, delta, mass_kg)
 	var attack := current_attack
 	if attack == null:
 		_enter(State.IDLE)
@@ -270,6 +293,8 @@ func _start_block() -> void:
 
 func _process_block(delta: float) -> void:
 	velocity.x = motor.compute_velocity_x(velocity.x, 0.0, delta, mass_kg)
+	if depth_enabled:
+		velocity.z = motor.compute_velocity_z(velocity.z, 0.0, delta, mass_kg)
 	if _intent.dodge and _dodge_cooldown == 0:
 		_start_dodge()
 	elif not _intent.block:
@@ -285,12 +310,16 @@ func _start_dodge() -> void:
 func _process_dodge() -> void:
 	var t := float(_state_frame) / DODGE_FRAMES
 	velocity.x = _dodge_dir * DODGE_SPEED * (1.0 - 0.7 * t)
+	if depth_enabled:
+		velocity.z = 0.0
 	if _state_frame >= DODGE_FRAMES:
 		_enter(State.IDLE)
 
 
 func _process_stun(delta: float) -> void:
 	velocity.x = move_toward(velocity.x, 0.0, motor.deceleration * STUN_FRICTION_FACTOR * delta)
+	if depth_enabled:
+		velocity.z = move_toward(velocity.z, 0.0, motor.deceleration * STUN_FRICTION_FACTOR * delta)
 	if _state_frame >= _stun_frames:
 		_enter(State.IDLE)
 

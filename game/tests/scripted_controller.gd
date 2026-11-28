@@ -2,6 +2,7 @@ extends FighterController
 ## Contrôleur piloté par les tests : maintient un axe et une garde, envoie des appuis brefs.
 
 var move_axis: float = 0.0
+var depth_axis: float = 0.0
 var block: bool = false
 var _light: bool = false
 var _heavy: bool = false
@@ -23,6 +24,7 @@ func press_dodge() -> void:
 func read_intent(_fighter: Fighter, intent: FighterIntent) -> void:
 	intent.clear()
 	intent.move_axis = move_axis
+	intent.depth_axis = depth_axis
 	intent.block = block
 	intent.attack_light = _light
 	intent.attack_heavy = _heavy

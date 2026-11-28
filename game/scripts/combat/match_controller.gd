@@ -8,6 +8,8 @@ extends Node3D
 const MIN_SEPARATION := 0.7
 ## Limite de déplacement : murs à ±8,5 m, moins le rayon d'un combattant.
 const ARENA_HALF_WIDTH := 8.15
+## Limite de déplacement en profondeur (axe Z) quand l'option Profondeur est activée.
+const ARENA_HALF_DEPTH := 1.5
 
 @export var round_seconds: int = 99
 @export var smoke_test_frames: int = 120
@@ -15,9 +17,14 @@ const ARENA_HALF_WIDTH := 8.15
 var match_over: bool = false
 var winner: Fighter = null
 ## Option « Profondeur » (V0.6) : désactivée par défaut, réglée par le point d'entrée du jeu avant
-## le début du combat. Étape 0 : aucun code ne la lit encore ; le combat est strictement celui de
-## V0.5.0, que l'option soit activée ou non.
-var depth_enabled: bool = false
+## le début du combat. Désactivée, le combat est strictement identique à V0.5.0.
+var depth_enabled: bool = false:
+	set(value):
+		depth_enabled = value
+		if fighter_a != null:
+			fighter_a.depth_enabled = value
+		if fighter_b != null:
+			fighter_b.depth_enabled = value
 
 ## Touches détectées pendant la frame, résolues ensemble après le passage des deux
 ## combattants : deux coups simultanés s'échangent (et peuvent finir en double K.O.),
@@ -40,6 +47,10 @@ func _ready() -> void:
 	process_physics_priority = 10
 	fighter_a.opponent = fighter_b
 	fighter_b.opponent = fighter_a
+	fighter_a.depth_enabled = depth_enabled
+	fighter_b.depth_enabled = depth_enabled
+	fighter_a.arena_half_depth = ARENA_HALF_DEPTH
+	fighter_b.arena_half_depth = ARENA_HALF_DEPTH
 	fighter_a.controller = $Controllers/Player
 	fighter_b.controller = $Controllers/AI
 	camera.set_targets(fighter_a, fighter_b)
@@ -95,6 +106,9 @@ func _physics_process(delta: float) -> void:
 ## Les corps ne se traversent pas : avancer contre l'adversaire le pousse (à moitié de la
 ## vitesse), et personne ne sort de l'arène.
 func _enforce_spacing() -> void:
+	if depth_enabled:
+		_enforce_spacing_xz()
+		return
 	var a := fighter_a.global_position
 	var b := fighter_b.global_position
 	var dx := b.x - a.x
@@ -111,6 +125,75 @@ func _enforce_spacing() -> void:
 			b.x = a.x + signf(-a.x) * MIN_SEPARATION
 		else:
 			a.x = b.x + signf(-b.x) * MIN_SEPARATION
+	fighter_a.global_position = a
+	fighter_b.global_position = b
+
+
+## Séparation des corps dans le plan XZ et bornage dans [-ARENA_HALF_WIDTH, +ARENA_HALF_WIDTH] ×
+## [-ARENA_HALF_DEPTH, +ARENA_HALF_DEPTH] lorsque l'option Profondeur est activée.
+func _enforce_spacing_xz() -> void:
+	var a := fighter_a.global_position
+	var b := fighter_b.global_position
+	var dx := b.x - a.x
+	var dz := b.z - a.z
+	var dist := absf(dx) if dz == 0.0 else Vector2(dx, dz).length()
+	if dist < MIN_SEPARATION:
+		var dir: Vector2
+		if dist <= 0.0001:
+			dir = Vector2(fighter_a.facing, 0.0)
+		elif dz == 0.0:
+			dir = Vector2(signf(dx), 0.0)
+		else:
+			dir = Vector2(dx, dz) / dist
+		var overlap := MIN_SEPARATION - dist
+		a.x -= dir.x * overlap * 0.5
+		a.z -= dir.y * overlap * 0.5
+		b.x += dir.x * overlap * 0.5
+		b.z += dir.y * overlap * 0.5
+	a.x = clampf(a.x, -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH)
+	b.x = clampf(b.x, -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH)
+	a.z = clampf(a.z, -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH)
+	b.z = clampf(b.z, -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH)
+	var after_dx := b.x - a.x
+	var after_dz := b.z - a.z
+	var after_dist := absf(after_dx) if after_dz == 0.0 else Vector2(after_dx, after_dz).length()
+	if after_dist < MIN_SEPARATION - 0.001:
+		# Un des deux est bloqué contre une limite de l'arène : on repousse l'autre dans le plan XZ.
+		var dir: Vector2
+		if after_dist <= 0.0001:
+			dir = Vector2(fighter_a.facing, 0.0)
+		elif after_dz == 0.0:
+			dir = Vector2(signf(after_dx), 0.0)
+		else:
+			dir = Vector2(after_dx, after_dz) / after_dist
+		var a_pinned := absf(a.x) >= ARENA_HALF_WIDTH - 0.001 or absf(a.z) >= ARENA_HALF_DEPTH - 0.001
+		var b_pinned := absf(b.x) >= ARENA_HALF_WIDTH - 0.001 or absf(b.z) >= ARENA_HALF_DEPTH - 0.001
+		var need := MIN_SEPARATION - after_dist
+		if a_pinned and not b_pinned:
+			var push_dir := dir
+			if absf(a.x) >= ARENA_HALF_WIDTH - 0.001 and signf(push_dir.x) == signf(a.x):
+				push_dir.x = signf(-a.x)
+			if absf(a.z) >= ARENA_HALF_DEPTH - 0.001 and signf(push_dir.y) == signf(a.z):
+				push_dir.y = signf(-a.z)
+			push_dir = push_dir.normalized() if push_dir.length_squared() > 0.0001 else Vector2(signf(-a.x) if absf(a.x) >= ARENA_HALF_WIDTH - 0.001 else fighter_a.facing, 0.0)
+			b.x = clampf(b.x + push_dir.x * need, -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH)
+			b.z = clampf(b.z + push_dir.y * need, -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH)
+		elif b_pinned and not a_pinned:
+			var push_dir := -dir
+			if absf(b.x) >= ARENA_HALF_WIDTH - 0.001 and signf(push_dir.x) == signf(b.x):
+				push_dir.x = signf(-b.x)
+			if absf(b.z) >= ARENA_HALF_DEPTH - 0.001 and signf(push_dir.y) == signf(b.z):
+				push_dir.y = signf(-b.z)
+			push_dir = push_dir.normalized() if push_dir.length_squared() > 0.0001 else Vector2(signf(-b.x) if absf(b.x) >= ARENA_HALF_WIDTH - 0.001 else -fighter_a.facing, 0.0)
+			a.x = clampf(a.x + push_dir.x * need, -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH)
+			a.z = clampf(a.z + push_dir.y * need, -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH)
+		else:
+			var away_x := signf(-a.x) if absf(a.x) >= ARENA_HALF_WIDTH - 0.001 else (dir.x if absf(dir.x) > 0.01 else fighter_a.facing)
+			var away_z := signf(-a.z) if absf(a.z) >= ARENA_HALF_DEPTH - 0.001 else dir.y
+			var push_dir := Vector2(away_x, away_z)
+			push_dir = push_dir.normalized() if push_dir.length_squared() > 0.0001 else Vector2(fighter_a.facing, 0.0)
+			b.x = clampf(a.x + push_dir.x * MIN_SEPARATION, -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH)
+			b.z = clampf(a.z + push_dir.y * MIN_SEPARATION, -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH)
 	fighter_a.global_position = a
 	fighter_b.global_position = b
 

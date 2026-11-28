@@ -6,6 +6,8 @@ extends Node
 const ACTIONS := {
 	&"move_left": [KEY_A, KEY_LEFT],
 	&"move_right": [KEY_D, KEY_RIGHT],
+	&"move_up": [KEY_W, KEY_UP],
+	&"move_down": [KEY_S, KEY_DOWN],
 	&"attack_light": [KEY_J],
 	&"attack_heavy": [KEY_K],
 	&"block": [KEY_L],

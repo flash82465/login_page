@@ -69,6 +69,15 @@ func _ready() -> void:
 	# Correctif de l'essai Android de l'étape 0 (bouton Profondeur au doigt)
 	await _test_depth_toggle_single_finger_tap()
 	await _test_depth_toggle_ignores_double_tap()
+	# Mission 009 / V0.6-A, étape 1 — déplacement en profondeur (axe Z) et espacement XZ
+	await _test_depth_move_negative_z()
+	await _test_depth_move_positive_z()
+	await _test_depth_combined_xz_movement()
+	await _test_depth_max_speed_and_inertia()
+	await _test_depth_arena_limits()
+	await _test_depth_locked_when_disabled()
+	await _test_depth_spacing_disabled_vs_enabled()
+	await _test_depth_diagonal_normalization()
 	var total := _passed + _failed
 	if _failed == 0:
 		print("TESTS OK %d/%d" % [_passed, total])
@@ -1539,3 +1548,311 @@ func _test_depth_toggle_ignores_double_tap() -> void:
 	VisualSettings.clear()
 	await _frames(2)
 	_end()
+
+
+# --- Tests 38 à 44 : Mission 009 / V0.6-A, étape 1 (déplacement Z et espacement XZ) ----------
+
+func _new_depth_match(depth: bool, scripted_a: bool, scripted_b: bool):
+	var m = MAIN_SCENE.instantiate()
+	if _generation != null:
+		_generation.apply_to(m)
+	m.depth_enabled = depth
+	add_child(m)
+	await _frames(1)
+	if scripted_a:
+		var ca := ScriptedController.new()
+		m.add_child(ca)
+		m.fighter_a.controller = ca
+	if scripted_b:
+		var cb := ScriptedController.new()
+		m.add_child(cb)
+		m.fighter_b.controller = cb
+	return m
+
+
+func _has_key_binding(action: StringName, keycode: Key) -> bool:
+	if not InputMap.has_action(action):
+		return false
+	for ev in InputMap.action_get_events(action):
+		var k := ev as InputEventKey
+		if k != null and k.physical_keycode == keycode:
+			return true
+	return false
+
+
+func _test_depth_move_negative_z() -> void:
+	_begin("Profondeur (-Z) : W/UP mappés sur move_up ; depth_enabled = true déplace le combattant vers le fond (-Z)")
+	_check(_has_key_binding(&"move_up", KEY_W) and _has_key_binding(&"move_up", KEY_UP), "W et UP ne sont pas mappés sur move_up")
+	var m = await _new_depth_match(true, false, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -1.5, 0.0)
+	_place_xz(m.fighter_b, 1.5, 0.0)
+	Input.action_press(&"move_up")
+	await _frames(30)
+	var z_keyboard := a.global_position.z
+	var vz_keyboard := a.velocity.z
+	Input.action_release(&"move_up")
+	_check(z_keyboard < -0.5, "move_up n'a pas déplacé vers -Z (z = %.3f)" % z_keyboard)
+	_check(vz_keyboard < -1.5, "vitesse Z négative insuffisante avec move_up (vz = %.3f)" % vz_keyboard)
+	await _close(m)
+	_end()
+
+
+func _test_depth_move_positive_z() -> void:
+	_begin("Profondeur (+Z) : S/DOWN mappés sur move_down ; depth_enabled = true déplace le combattant vers la caméra (+Z)")
+	_check(_has_key_binding(&"move_down", KEY_S) and _has_key_binding(&"move_down", KEY_DOWN), "S et DOWN ne sont pas mappés sur move_down")
+	var m = await _new_depth_match(true, false, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -1.5, 0.0)
+	_place_xz(m.fighter_b, 1.5, 0.0)
+	Input.action_press(&"move_down")
+	await _frames(30)
+	var z_keyboard := a.global_position.z
+	var vz_keyboard := a.velocity.z
+	Input.action_release(&"move_down")
+	_check(z_keyboard > 0.5, "move_down n'a pas déplacé vers +Z (z = %.3f)" % z_keyboard)
+	_check(vz_keyboard > 1.5, "vitesse Z positive insuffisante avec move_down (vz = %.3f)" % vz_keyboard)
+	await _close(m)
+	_end()
+
+
+func _test_depth_combined_xz_movement() -> void:
+	_begin("Profondeur (X + Z) : déplacement combiné sur X et Z simultanément")
+	var m = await _new_depth_match(true, true, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -2.5, 0.0)
+	_place_xz(m.fighter_b, 3.0, 0.0)
+	var ca = _ctrl(a)
+	ca.move_axis = 1.0
+	ca.depth_axis = -1.0
+	await _frames(30)
+	var pos_1 := a.global_position
+	_check(pos_1.x > -1.7 and pos_1.z < -0.5, "déplacement (+X, -Z) insuffisant : %s" % pos_1)
+	_check(a.state == Fighter.State.WALK, "le combattant n'est pas en état WALK pendant un déplacement X+Z")
+	ca.move_axis = -1.0
+	ca.depth_axis = 1.0
+	await _frames(50)
+	var pos_2 := a.global_position
+	_check(pos_2.x < pos_1.x - 1.0 and pos_2.z > pos_1.z + 0.9, "inversion (-X, +Z) inopérante : %s -> %s" % [pos_1, pos_2])
+	_check(a.velocity.x < -2.0 and a.velocity.z > 1.5, "vitesses inversées X+Z insuffisantes : %s" % a.velocity)
+	ca.move_axis = 0.0
+	ca.depth_axis = 0.0
+	await _close(m)
+	_end()
+
+
+func _test_depth_max_speed_and_inertia() -> void:
+	_begin("Profondeur (vitesse max et inertie) : vitesse Z bornée à 2,2 m/s, accélération et freinage progressifs selon la masse")
+	var m = await _new_depth_match(true, true, true)
+	var a: Fighter = m.fighter_a  # Tandé : 92 kg
+	var b: Fighter = m.fighter_b  # Mabé : 110 kg
+	_place_xz(a, -2.0, -1.2)
+	_place_xz(b, 2.0, -1.2)
+	var ca = _ctrl(a)
+	var cb = _ctrl(b)
+	ca.depth_axis = 1.0
+	cb.depth_axis = 1.0
+	var max_vz_a := 0.0
+	var max_vz_b := 0.0
+	var vz_a_f3 := 0.0
+	var vz_b_f3 := 0.0
+	for frame in 40:
+		await _frames(1)
+		max_vz_a = maxf(max_vz_a, absf(a.velocity.z))
+		max_vz_b = maxf(max_vz_b, absf(b.velocity.z))
+		if frame == 2:
+			vz_a_f3 = a.velocity.z
+			vz_b_f3 = b.velocity.z
+	_check(vz_a_f3 > 0.1 and vz_a_f3 < 2.0, "accélération Z non progressive (frame 3 : %.3f)" % vz_a_f3)
+	_check(vz_a_f3 > vz_b_f3 + 0.05, "la masse n'influence pas l'accélération Z (Tandé %.3f vs Mabé %.3f)" % [vz_a_f3, vz_b_f3])
+	_check(max_vz_a <= 2.2001 and max_vz_b <= 2.2001, "vitesse Z supérieure à 2,2 m/s (Tandé %.4f, Mabé %.4f)" % [max_vz_a, max_vz_b])
+	_check(absf(max_vz_a - 2.2) < 0.02 and absf(max_vz_b - 2.2) < 0.02, "vitesse max 2,2 m/s non atteinte (Tandé %.4f, Mabé %.4f)" % [max_vz_a, max_vz_b])
+	# Décélération au relâchement : progressive (pas d'arrêt instantané) puis arrêt complet.
+	ca.depth_axis = 0.0
+	cb.depth_axis = 0.0
+	await _frames(2)
+	var decel_a := a.velocity.z
+	var decel_b := b.velocity.z
+	_check(decel_a > 0.2 and decel_a < 2.1, "décélération Z absente ou instantanée (Tandé : %.3f)" % decel_a)
+	_check(decel_a < decel_b - 0.05, "la masse n'influence pas la décélération Z (Tandé %.3f vs Mabé %.3f)" % [decel_a, decel_b])
+	await _frames(20)
+	_check(absf(a.velocity.z) < 0.001 and absf(b.velocity.z) < 0.001, "le combattant ne s'arrête pas en Z après relâchement")
+	_check(a.state == Fighter.State.IDLE and b.state == Fighter.State.IDLE, "retour à IDLE non effectué après arrêt Z")
+	await _close(m)
+	_end()
+
+
+func _test_depth_arena_limits() -> void:
+	_begin("Profondeur (limites ±1,5 m) : bornage strict à Z = -1,5 et Z = +1,5 sans dépassement ni blocage au demi-tour")
+	var m = await _new_depth_match(true, true, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -2.0, 0.0)
+	_place_xz(m.fighter_b, 2.0, 0.0)
+	var ca = _ctrl(a)
+	ca.depth_axis = -1.0
+	var min_z := 0.0
+	for _i in 90:
+		await _frames(1)
+		min_z = minf(min_z, a.global_position.z)
+	_check(min_z >= -1.5001 and absf(a.global_position.z - (-1.5)) < 0.01, "limite Z = -1,5 non respectée (z = %.4f, min = %.4f)" % [a.global_position.z, min_z])
+	_check(absf(a.velocity.z) < 0.001, "vitesse Z non annulée contre la limite -1,5 (vz = %.4f)" % a.velocity.z)
+	ca.depth_axis = 1.0
+	await _frames(5)
+	_check(a.global_position.z > -1.49 and a.velocity.z > 0.0, "demi-tour depuis Z = -1,5 bloqué")
+	var max_z := -1.5
+	for _i in 120:
+		await _frames(1)
+		max_z = maxf(max_z, a.global_position.z)
+	_check(max_z <= 1.5001 and absf(a.global_position.z - 1.5) < 0.01, "limite Z = +1,5 non respectée (z = %.4f, max = %.4f)" % [a.global_position.z, max_z])
+	_check(absf(a.velocity.z) < 0.001, "vitesse Z non annulée contre la limite +1,5 (vz = %.4f)" % a.velocity.z)
+	ca.depth_axis = 0.0
+	await _close(m)
+	_end()
+
+
+func _test_depth_locked_when_disabled() -> void:
+	_begin("Profondeur désactivée : move_up/move_down et depth_axis sont sans effet, Z reste strictement à 0")
+	var m = await _new_depth_match(false, true, true)
+	var a: Fighter = m.fighter_a
+	_place_xz(a, -1.5, 0.0)
+	_place_xz(m.fighter_b, 1.5, 0.0)
+	var ca = _ctrl(a)
+	ca.depth_axis = -1.0
+	for _i in 20:
+		await _frames(1)
+		_check(a.global_position.z == 0.0 and a.velocity.z == 0.0, "Z a bougé malgré depth_enabled = false (scripté -Z)")
+	ca.depth_axis = 1.0
+	for _i in 20:
+		await _frames(1)
+		_check(a.global_position.z == 0.0 and a.velocity.z == 0.0, "Z a bougé malgré depth_enabled = false (scripté +Z)")
+	await _close(m)
+	# Vérification également avec le vrai contrôleur clavier PlayerInputController.
+	var m2 = await _new_depth_match(false, false, true)
+	var a2: Fighter = m2.fighter_a
+	Input.action_press(&"move_up")
+	await _frames(20)
+	_check(a2.global_position.z == 0.0 and a2.velocity.z == 0.0, "move_up a déplacé Z malgré depth_enabled = false")
+	Input.action_release(&"move_up")
+	Input.action_press(&"move_down")
+	await _frames(20)
+	_check(a2.global_position.z == 0.0 and a2.velocity.z == 0.0, "move_down a déplacé Z malgré depth_enabled = false")
+	Input.action_release(&"move_down")
+	await _close(m2)
+	_end()
+
+
+func _test_depth_spacing_disabled_vs_enabled() -> void:
+	_begin("Espacement : 1D historique quand depth_enabled = false ; 2D XZ quand depth_enabled = true (croisement libre si décalé en Z, séparation maintenue sinon)")
+	# 1. depth_enabled == false : blocage/poussée historique sur X, Z reste 0.
+	var m_off = await _new_depth_match(false, true, true)
+	_place_xz(m_off.fighter_a, -0.5, 0.0)
+	_place_xz(m_off.fighter_b, 0.5, 0.0)
+	_ctrl(m_off.fighter_a).move_axis = 1.0
+	await _frames(45)
+	_check(m_off.fighter_b.global_position.x - m_off.fighter_a.global_position.x >= 0.69, "espacement X non maintenu quand depth_enabled = false")
+	_check(m_off.fighter_b.global_position.x > 0.7, "poussée historique en X absente quand depth_enabled = false")
+	_check(m_off.fighter_a.global_position.z == 0.0 and m_off.fighter_b.global_position.z == 0.0, "Z non nul quand depth_enabled = false")
+	await _close(m_off)
+
+	# 2. depth_enabled == true : suffisamment décalés en Z, ils se croisent en X sans blocage ni poussée.
+	var m_on = await _new_depth_match(true, true, true)
+	var a: Fighter = m_on.fighter_a
+	var b: Fighter = m_on.fighter_b
+	_place_xz(a, -1.0, -1.0)
+	_place_xz(b, 0.0, 1.0)
+	_ctrl(a).move_axis = 1.0
+	await _frames(45)
+	_check(a.global_position.x > 0.5, "A n'a pas pu croiser B en X malgré un écart de 2 m en Z (a.x = %.3f)" % a.global_position.x)
+	_check(absf(b.global_position.x) < 0.01 and absf(b.global_position.z - 1.0) < 0.01, "B a été poussé artificiellement malgré l'écart en Z (%s)" % b.global_position)
+	_ctrl(a).move_axis = 0.0
+
+	# 3. depth_enabled == true : proches dans le plan XZ, la distance 2D reste >= 0,7 m (y compris contre Z = +1,5).
+	_place_xz(a, 0.0, 0.6)
+	_place_xz(b, 0.0, 1.5)
+	_ctrl(a).depth_axis = 1.0
+	await _frames(45)
+	var dist_xz := Vector2(b.global_position.x - a.global_position.x, b.global_position.z - a.global_position.z).length()
+	_check(dist_xz >= 0.69, "chevauchement dans le plan XZ contre la limite Z (dist = %.3f)" % dist_xz)
+	_check(absf(a.global_position.z) <= 1.5001 and absf(b.global_position.z) <= 1.5001, "dépassement des limites Z lors de la séparation XZ")
+	_check(absf(a.global_position.x) <= 8.1501 and absf(b.global_position.x) <= 8.1501, "dépassement des limites X lors de la séparation XZ")
+	_ctrl(a).depth_axis = 0.0
+	await _close(m_on)
+	_end()
+
+
+func _test_depth_diagonal_normalization() -> void:
+	_begin("Profondeur (normalisation diagonale) : X seul = 3,0 m/s, Z seul = 2,2 m/s, diagonale normalisée (≈ 2,63 m/s ≤ 3,0 m/s), masses respectées, V0.5 intact si désactivée")
+	var expected_vx := 3.0 / sqrt(2.0)
+	var expected_vz := 2.2 / sqrt(2.0)
+	var expected_diag := Vector2(expected_vx, expected_vz).length()
+
+	# 1. X seul conserve 3,0 m/s ; 2. Z seul conserve 2,2 m/s.
+	var m = await _new_depth_match(true, true, true)
+	var a: Fighter = m.fighter_a  # Tandé : 92 kg
+	var b: Fighter = m.fighter_b  # Mabé : 110 kg
+	var ca = _ctrl(a)
+	var cb = _ctrl(b)
+	_place_xz(a, -5.0, -1.2)
+	_place_xz(b, 5.0, -1.2)
+	ca.move_axis = 1.0
+	ca.depth_axis = 0.0
+	cb.move_axis = 0.0
+	cb.depth_axis = 1.0
+	await _frames(35)
+	_check(absf(a.velocity.x - 3.0) < 0.02 and a.velocity.z == 0.0, "X seul ne conserve pas 3,0 m/s (%s)" % a.velocity)
+	_check(absf(b.velocity.z - 2.2) < 0.02 and b.velocity.x == 0.0, "Z seul ne conserve pas 2,2 m/s (%s)" % b.velocity)
+
+	# 3, 4 et 5. Diagonale normalisée sur Tandé (92 kg) et Mabé (110 kg).
+	_place_xz(a, -5.0, -1.3)
+	_place_xz(b, 2.0, -1.3)
+	ca.move_axis = 1.0
+	ca.depth_axis = 1.0
+	cb.move_axis = 1.0
+	cb.depth_axis = 1.0
+	var max_diag_a := 0.0
+	var max_diag_b := 0.0
+	var speed_a_f3 := 0.0
+	var speed_b_f3 := 0.0
+	for frame in 35:
+		await _frames(1)
+		var sa := Vector2(a.velocity.x, a.velocity.z).length()
+		var sb := Vector2(b.velocity.x, b.velocity.z).length()
+		max_diag_a = maxf(max_diag_a, sa)
+		max_diag_b = maxf(max_diag_b, sb)
+		if frame == 2:
+			speed_a_f3 = sa
+			speed_b_f3 = sb
+	_check(speed_a_f3 > speed_b_f3 + 0.05, "la masse n'influence pas l'accélération diagonale (Tandé %.3f vs Mabé %.3f)" % [speed_a_f3, speed_b_f3])
+	_check(absf(a.velocity.x - expected_vx) < 0.03 and absf(a.velocity.z - expected_vz) < 0.03,
+		"composantes diagonales Tandé non normalisées (vx=%.3f, vz=%.3f, attendu %.3f / %.3f)" % [a.velocity.x, a.velocity.z, expected_vx, expected_vz])
+	_check(absf(b.velocity.x - expected_vx) < 0.03 and absf(b.velocity.z - expected_vz) < 0.03,
+		"composantes diagonales Mabé non normalisées (vx=%.3f, vz=%.3f, attendu %.3f / %.3f)" % [b.velocity.x, b.velocity.z, expected_vx, expected_vz])
+	_check(max_diag_a <= expected_diag + 0.02 and max_diag_b <= expected_diag + 0.02 and max_diag_a <= 3.0 and max_diag_b <= 3.0,
+		"vitesse diagonale résultante excessive (Tandé %.3f, Mabé %.3f, limite attendue %.3f)" % [max_diag_a, max_diag_b, expected_diag])
+	_check(absf(max_diag_a - expected_diag) < 0.03 and absf(max_diag_b - expected_diag) < 0.03,
+		"vitesse diagonale normalisée non atteinte (Tandé %.3f, Mabé %.3f, attendu %.3f)" % [max_diag_a, max_diag_b, expected_diag])
+	# Décélération diagonale : Tandé (plus léger) freine plus vite que Mabé.
+	ca.move_axis = 0.0
+	ca.depth_axis = 0.0
+	cb.move_axis = 0.0
+	cb.depth_axis = 0.0
+	await _frames(2)
+	var decel_a := Vector2(a.velocity.x, a.velocity.z).length()
+	var decel_b := Vector2(b.velocity.x, b.velocity.z).length()
+	_check(decel_a > 0.2 and decel_a < decel_b - 0.05, "freinage diagonal incohérent avec la masse (Tandé %.3f vs Mabé %.3f)" % [decel_a, decel_b])
+	await _close(m)
+
+	# 6. Profondeur désactivée : maintenir X + Z ne réduit pas la vitesse X historique (3,0 m/s) et garde Z = 0.
+	var m_off = await _new_depth_match(false, true, true)
+	var a_off: Fighter = m_off.fighter_a
+	_place_xz(a_off, -4.0, 0.0)
+	_place_xz(m_off.fighter_b, 4.0, 0.0)
+	_ctrl(a_off).move_axis = 1.0
+	_ctrl(a_off).depth_axis = 1.0
+	await _frames(35)
+	_check(absf(a_off.velocity.x - 3.0) < 0.02, "profondeur désactivée : une entrée Z a ralenti le déplacement X (vx = %.3f)" % a_off.velocity.x)
+	_check(a_off.global_position.z == 0.0 and a_off.velocity.z == 0.0, "profondeur désactivée : Z non nul (%s, %s)" % [a_off.global_position, a_off.velocity])
+	await _close(m_off)
+	_end()
+
+

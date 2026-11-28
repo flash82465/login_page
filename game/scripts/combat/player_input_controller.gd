@@ -20,6 +20,7 @@ func _process(_delta: float) -> void:
 func read_intent(_fighter: Fighter, intent: FighterIntent) -> void:
 	_detect_taps()
 	intent.move_axis = Input.get_axis(&"move_left", &"move_right")
+	intent.depth_axis = Input.get_axis(&"move_up", &"move_down")
 	intent.block = Input.is_action_pressed(&"block")
 	intent.attack_light = _consume(&"attack_light")
 	intent.attack_heavy = _consume(&"attack_heavy")
